@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { formatNPR } from '@/lib/format'
 import { getInventory } from '@/lib/inventory'
@@ -32,12 +33,20 @@ interface InventoryItem {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  async function handleLogout() {
+    setLoggingOut(true)
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }
 
   async function load() {
     try {
@@ -112,13 +121,27 @@ export default function DashboardPage() {
         padding: '52px 20px 20px',
         position: 'sticky', top: 0, zIndex: 10
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="font-mono-numbers" style={{
             fontSize: 24, fontWeight: 700, color: '#F59E0B', letterSpacing: '-0.5px'
           }}>
             godam
           </span>
-          <span style={{ fontSize: 12, color: '#6B7280' }}>{today}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 12, color: '#6B7280' }}>{today}</span>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              title="Logout"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: '#6B7280', padding: 4, display: 'flex', alignItems: 'center',
+                opacity: loggingOut ? 0.5 : 1,
+              }}
+            >
+              <LogoutIcon />
+            </button>
+          </div>
         </div>
         <p style={{ color: '#9CA3AF', fontSize: 13, marginTop: 4 }}>
           {loading ? 'Loading…' : `${transactions.length} transactions recorded`}
@@ -250,6 +273,16 @@ function TrashIcon() {
       <path d="M19 6l-1 14H6L5 6" />
       <path d="M10 11v6M14 11v6" />
       <path d="M9 6V4h6v2" />
+    </svg>
+  )
+}
+
+function LogoutIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
     </svg>
   )
 }
