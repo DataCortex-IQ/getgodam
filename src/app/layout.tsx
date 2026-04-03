@@ -24,6 +24,10 @@ export const metadata: Metadata = {
   title: 'Godam',
   description: 'Godown and trade tracker',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+  },
   other: {
     'theme-color': '#0F1117',
     'apple-mobile-web-app-capable': 'yes',
