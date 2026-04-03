@@ -153,49 +153,62 @@ export default function LoginPage() {
   )
 }
 
-/** Renders after mount so SSR + first client paint match (avoids hydration mismatch vs stale cached HTML). */
+/** Link row defers to after mount so SSR + first client paint match; tagline is static (hydration-safe). */
 function PoweredByFooter() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
-  const rowStyle: CSSProperties = {
+  const wrap: CSSProperties = {
     marginTop: 40,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 10,
+  }
+
+  const linkRow: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
     minHeight: 18,
-  }
-
-  if (!mounted) {
-    return <div style={{ ...rowStyle, opacity: 0 }} aria-hidden />
+    textDecoration: 'none',
+    opacity: 0.35,
   }
 
   return (
-    <a
-      href="https://www.datacortex.in"
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        ...rowStyle,
-        textDecoration: 'none',
-        opacity: 0.35,
-      }}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
-        <rect x="13" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
-        <rect x="3" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" />
-        <rect x="13" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" opacity="0.4" />
-      </svg>
-      <span style={{
-        fontSize: 11,
-        color: '#94A3B8',
-        letterSpacing: '0.04em',
-        fontWeight: 500,
-      }}>
-        Powered by DataCortex
-      </span>
-    </a>
+    <div style={wrap}>
+      {mounted ? (
+        <a
+          href="https://www.datacortex.in"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={linkRow}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
+            <rect x="13" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
+            <rect x="3" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" />
+            <rect x="13" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" opacity="0.4" />
+          </svg>
+          <span style={{
+            fontSize: 11,
+            color: '#94A3B8',
+            letterSpacing: '0.04em',
+            fontWeight: 500,
+          }}>
+            Powered by DataCortex
+          </span>
+        </a>
+      ) : (
+        <div style={{ ...linkRow, opacity: 0, pointerEvents: 'none' }} aria-hidden>
+          <span style={{ width: 14, height: 14, flexShrink: 0 }} />
+          <span style={{ width: 132, height: 11 }} />
+        </div>
+      )}
+      <p style={{ margin: 0, fontSize: 12, color: '#374151', letterSpacing: '0.02em', textAlign: 'center' }}>
+        Made with ❤️ from India
+      </p>
+    </div>
   )
 }
 
