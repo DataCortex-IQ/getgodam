@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env.local
+
+# SQL migrations — run manually in Supabase; not versioned here
+/supabase/
