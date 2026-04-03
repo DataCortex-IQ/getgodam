@@ -7,50 +7,44 @@ interface ConfirmDialogProps {
   loading?: boolean
 }
 
-export default function ConfirmDialog({
-  open,
-  title = 'Are you sure?',
-  message,
-  onCancel,
-  onConfirm,
-  loading = false,
-}: ConfirmDialogProps) {
+export default function ConfirmDialog({ open, title = 'Are you sure?', message, onCancel, onConfirm, loading }: ConfirmDialogProps) {
   if (!open) return null
-
   return (
     <div
-      onClick={onCancel}
       style={{
-        position: 'fixed', inset: 0, zIndex: 200,
-        background: 'rgba(0,0,0,0.45)',
+        position: 'fixed', inset: 0, zIndex: 100,
         display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
         padding: '0 0 env(safe-area-inset-bottom)',
       }}
+      onClick={onCancel}
     >
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          background: '#FFFFFF',
-          borderRadius: '16px 16px 0 0',
-          width: '100%',
-          maxWidth: 480,
-          padding: '24px 20px 28px',
+          background: '#1A1D27',
+          borderRadius: '20px 20px 0 0',
+          padding: '24px 20px 32px',
+          width: '100%', maxWidth: 480,
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderBottom: 'none',
         }}
       >
-        <p style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 6 }}>
-          {title}
-        </p>
-        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 24 }}>
-          {message}
-        </p>
+        <div style={{
+          width: 36, height: 4, borderRadius: 2,
+          background: 'rgba(255,255,255,0.15)',
+          margin: '0 auto 20px',
+        }} />
+        <p style={{ fontSize: 17, fontWeight: 600, color: '#F1F5F9', marginBottom: 8 }}>{title}</p>
+        <p style={{ fontSize: 14, color: '#475569', marginBottom: 24, lineHeight: 1.5 }}>{message}</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <button
             onClick={onCancel}
-            disabled={loading}
             style={{
-              padding: '13px 0', background: '#F3F4F6',
-              color: '#374151', border: 'none', borderRadius: 10,
-              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              padding: '14px 0', borderRadius: 12,
+              background: 'rgba(255,255,255,0.07)',
+              color: '#94A3B8', border: '1px solid rgba(255,255,255,0.07)',
+              fontSize: 15, fontWeight: 600, cursor: 'pointer',
             }}
           >
             Cancel
@@ -59,9 +53,9 @@ export default function ConfirmDialog({
             onClick={onConfirm}
             disabled={loading}
             style={{
-              padding: '13px 0', background: '#EF4444',
-              color: '#FFFFFF', border: 'none', borderRadius: 10,
-              fontSize: 14, fontWeight: 700,
+              padding: '14px 0', borderRadius: 12,
+              background: '#F43F5E', color: 'white', border: 'none',
+              fontSize: 15, fontWeight: 600,
               cursor: loading ? 'not-allowed' : 'pointer',
               opacity: loading ? 0.7 : 1,
             }}

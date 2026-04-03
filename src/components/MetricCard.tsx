@@ -2,41 +2,39 @@ interface MetricCardProps {
   label: string
   value: string
   sub?: string
-  accent?: boolean
+  trend?: 'up' | 'down' | 'neutral'
+  size?: 'sm' | 'md'
 }
 
-export default function MetricCard({ label, value, sub, accent }: MetricCardProps) {
+export default function MetricCard({ label, value, sub, trend, size = 'md' }: MetricCardProps) {
+  const trendColor = trend === 'up' ? '#10B981' : trend === 'down' ? '#F43F5E' : '#F59E0B'
   return (
     <div style={{
-      background: accent ? '#111827' : '#FFFFFF',
-      borderRadius: 12,
-      padding: '14px 16px',
-      border: accent ? 'none' : '1px solid #E5E7EB',
+      background: '#1A1D27',
+      borderRadius: 14,
+      padding: size === 'sm' ? '12px 14px' : '16px',
+      border: '1px solid rgba(255,255,255,0.07)',
       minWidth: 0,
+      flex: 1,
     }}>
       <p style={{
-        fontSize: 11,
-        color: accent ? '#9CA3AF' : '#6B7280',
-        marginBottom: 4,
-        fontWeight: 500,
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em'
+        fontSize: 11, color: '#475569',
+        marginBottom: 6, fontWeight: 500,
+        letterSpacing: '0.02em',
       }}>
         {label}
       </p>
       <p className="font-mono-numbers" style={{
-        fontSize: 18,
+        fontSize: size === 'sm' ? 15 : 18,
         fontWeight: 700,
-        color: accent ? '#F59E0B' : '#111827',
+        color: trend ? trendColor : '#F1F5F9',
         lineHeight: 1.2,
-        wordBreak: 'break-all'
+        wordBreak: 'break-all',
       }}>
         {value}
       </p>
       {sub && (
-        <p style={{ fontSize: 11, color: accent ? '#6B7280' : '#9CA3AF', marginTop: 2 }}>
-          {sub}
-        </p>
+        <p style={{ fontSize: 11, color: '#475569', marginTop: 3 }}>{sub}</p>
       )}
     </div>
   )

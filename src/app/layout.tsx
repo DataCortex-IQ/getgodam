@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   description: 'Godown and trade tracker',
   manifest: '/manifest.json',
   other: {
-    'theme-color': '#111827',
+    'theme-color': '#0F1117',
   }
 }
 
@@ -33,13 +33,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body
         className={`${dmSans.variable} ${dmMono.variable}`}
-        style={{ background: '#F9FAFB', margin: 0, fontFamily: 'var(--font-dm-sans), DM Sans, sans-serif' }}
+        style={{
+          background: '#0F1117',
+          margin: 0,
+          fontFamily: 'var(--font-dm-sans), DM Sans, sans-serif',
+          WebkitFontSmoothing: 'antialiased',
+        }}
       >
-        <main style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', paddingBottom: 72 }}>
+        <main style={{
+          maxWidth: 480,
+          margin: '0 auto',
+          minHeight: '100vh',
+          paddingBottom: 80,
+          background: '#0F1117',
+        }}>
           {children}
         </main>
         <BottomNav />
-        <Toaster position="top-center" />
+        <Toaster position="top-center" theme="dark" />
       </body>
     </html>
   )

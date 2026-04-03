@@ -8,36 +8,38 @@ interface LiveCalcProps {
 
 export default function LiveCalc({ qty, rate, vatPct }: LiveCalcProps) {
   const taxable = qty * rate
-  const vat = taxable * (vatPct / 100)
+  const vat = taxable * vatPct / 100
   const total = taxable + vat
 
   return (
     <div style={{
-      background: '#111827',
-      borderRadius: 12,
-      padding: '14px 16px',
-      marginTop: 4
+      background: '#1A1D27',
+      borderRadius: 14,
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderTop: '3px solid #F59E0B',
+      overflow: 'hidden',
+      marginTop: 4,
     }}>
-      <p style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-        Live Calculation
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: '#9CA3AF' }}>Taxable Amount</span>
-          <span className="font-mono-numbers" style={{ fontSize: 14, color: '#E5E7EB', fontWeight: 600 }}>
-            {formatNPR(taxable)}
-          </span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: '#9CA3AF' }}>VAT ({vatPct}%)</span>
-          <span className="font-mono-numbers" style={{ fontSize: 14, color: '#E5E7EB', fontWeight: 600 }}>
-            {formatNPR(vat)}
-          </span>
-        </div>
-        <div style={{ height: 1, background: '#374151', margin: '2px 0' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 600 }}>Total</span>
-          <span className="font-mono-numbers" style={{ fontSize: 18, color: '#F59E0B', fontWeight: 700 }}>
+      <div style={{ padding: '14px 16px' }}>
+        {[
+          { label: 'Taxable amount', value: formatNPR(taxable) },
+          { label: `VAT (${vatPct}%)`, value: formatNPR(vat) },
+        ].map(row => (
+          <div key={row.label} style={{
+            display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', marginBottom: 8,
+          }}>
+            <span style={{ fontSize: 13, color: '#475569' }}>{row.label}</span>
+            <span className="font-mono-numbers" style={{ fontSize: 13, color: '#94A3B8' }}>{row.value}</span>
+          </div>
+        ))}
+        <div style={{
+          borderTop: '1px solid rgba(255,255,255,0.07)',
+          paddingTop: 10, marginTop: 4,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#F1F5F9' }}>Total</span>
+          <span className="font-mono-numbers" style={{ fontSize: 20, fontWeight: 700, color: '#F59E0B' }}>
             {formatNPR(total)}
           </span>
         </div>
