@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS sauda (
   amount numeric NOT NULL,
   date date NOT NULL DEFAULT current_date,
   note text,
+  direction text NOT NULL DEFAULT 'purchase' CHECK (direction IN ('purchase', 'sale')),
   created_at timestamptz DEFAULT now()
 );
 

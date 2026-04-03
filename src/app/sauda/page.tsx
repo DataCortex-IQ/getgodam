@@ -8,6 +8,8 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 interface Ledger { id: string; name: string; type: 'supplier' | 'customer' | 'both' }
 interface Item { id: string; name: string; default_unit: string }
 
+type SaudaDirection = 'purchase' | 'sale'
+
 interface SaudaRow {
   id: string
   ledger_id: string | null
@@ -20,6 +22,7 @@ interface SaudaRow {
   amount: number
   date: string
   note: string | null
+  direction: SaudaDirection | null
   created_at: string
 }
 
@@ -32,6 +35,21 @@ function formatShortDate(dateStr: string): string {
 function formatRupees(n: number): string {
   const x = Math.round(n * 100) / 100
   return `रू ${x.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
+
+/** Purchase: rate up = bad (red ▲), down = good (green ▼). Sale: reversed. */
+function trendForDirection(diff: number, direction: SaudaDirection): { text: string; color: string } {
+  if (Math.abs(diff) <= 0.0001) {
+    return { text: 'No change since last deal', color: '#475569' }
+  }
+  const abs = formatRupees(Math.abs(diff))
+  const up = diff > 0
+  if (direction === 'purchase') {
+    if (up) return { text: `▲ ${abs} since last deal`, color: '#F43F5E' }
+    return { text: `▼ ${abs} since last deal`, color: '#10B981' }
+  }
+  if (up) return { text: `▲ ${abs} since last deal`, color: '#10B981' }
+  return { text: `▼ ${abs} since last deal`, color: '#F43F5E' }
 }
 
 export default function SaudaPage() {
@@ -48,14 +66,18 @@ export default function SaudaPage() {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [direction, setDirection] = useState<SaudaDirection>('purchase')
+  const [historyDirection, setHistoryDirection] = useState<SaudaDirection>('purchase')
 
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const supplierLedgers = useMemo(
-    () => ledgers.filter(l => l.type === 'supplier' || l.type === 'both').sort((a, b) => a.name.localeCompare(b.name)),
-    [ledgers],
-  )
+  const partyLedgers = useMemo(() => {
+    const f = direction === 'purchase'
+      ? (l: Ledger) => l.type === 'supplier' || l.type === 'both'
+      : (l: Ledger) => l.type === 'customer' || l.type === 'both'
+    return ledgers.filter(f).sort((a, b) => a.name.localeCompare(b.name))
+  }, [ledgers, direction])
 
   const selectedItem = items.find(i => i.id === itemId)
   const unit = selectedItem?.default_unit ?? ''
@@ -75,12 +97,17 @@ export default function SaudaPage() {
     setLedgers((l as Ledger[]) ?? [])
     setItems((i as Item[]) ?? [])
     setRows(
-      (s ?? []).map(r => ({
-        ...r,
-        quantity: Number(r.quantity),
-        rate: Number(r.rate),
-        amount: Number(r.amount),
-      })) as SaudaRow[],
+      (s ?? []).map(r => {
+        const raw = r as Record<string, unknown>
+        const d = raw.direction as SaudaDirection | null | undefined
+        return {
+          ...r,
+          quantity: Number(r.quantity),
+          rate: Number(r.rate),
+          amount: Number(r.amount),
+          direction: d === 'sale' ? 'sale' : 'purchase',
+        } as SaudaRow
+      }),
     )
     setLoading(false)
   }, [])
@@ -93,7 +120,7 @@ export default function SaudaPage() {
       toast.error('Choose party and item.')
       return
     }
-    const party = supplierLedgers.find(l => l.id === ledgerId)
+    const party = partyLedgers.find(l => l.id === ledgerId)
     const item = items.find(i => i.id === itemId)
     if (!party || !item) {
       toast.error('Choose party and item.')
@@ -121,6 +148,7 @@ export default function SaudaPage() {
         amount: amt,
         date,
         note: note.trim() || null,
+        direction,
       })
       if (error) throw error
       toast.success('Sauda recorded')
@@ -153,9 +181,14 @@ export default function SaudaPage() {
     }
   }
 
+  const filteredRows = useMemo(
+    () => rows.filter(r => (r.direction ?? 'purchase') === historyDirection),
+    [rows, historyDirection],
+  )
+
   const grouped = useMemo(() => {
     const map = new Map<string, SaudaRow[]>()
-    for (const r of rows) {
+    for (const r of filteredRows) {
       const k = r.item_name
       if (!map.has(k)) map.set(k, [])
       map.get(k)!.push(r)
@@ -172,7 +205,7 @@ export default function SaudaPage() {
       const db = b[1][0]?.date ?? ''
       return db.localeCompare(da)
     })
-  }, [rows])
+  }, [filteredRows])
 
   const inp: React.CSSProperties = {
     width: '100%',
@@ -233,18 +266,46 @@ export default function SaudaPage() {
             background: '#1A1D27',
             borderRadius: 16,
             padding: 16,
-            border: '1px solid rgba(245,158,11,0.2)',
-            borderTop: '3px solid #F59E0B',
+            border: direction === 'purchase' ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(16,185,129,0.2)',
+            borderTop: direction === 'purchase' ? '3px solid #F59E0B' : '3px solid #10B981',
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
           }}
         >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => { setDirection('purchase'); setLedgerId('') }}
+              style={{
+                padding: '11px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                background: direction === 'purchase' ? '#F59E0B' : '#1A1D27',
+                color: direction === 'purchase' ? '#111827' : '#475569',
+                border: direction === 'purchase' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                transition: 'all 0.15s',
+              }}
+            >
+              Purchase
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDirection('sale'); setLedgerId('') }}
+              style={{
+                padding: '11px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                background: direction === 'sale' ? '#10B981' : '#1A1D27',
+                color: direction === 'sale' ? '#FFFFFF' : '#475569',
+                border: direction === 'sale' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                transition: 'all 0.15s',
+              }}
+            >
+              Sale
+            </button>
+          </div>
           <div>
-            <label style={lbl}>Party (supplier)</label>
+            <label style={lbl}>{direction === 'purchase' ? 'Supplier' : 'Customer'}</label>
             <select value={ledgerId} onChange={e => setLedgerId(e.target.value)} style={inp} required>
               <option value="">Select party…</option>
-              {supplierLedgers.map(l => (
+              {partyLedgers.map(l => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
             </select>
@@ -299,7 +360,7 @@ export default function SaudaPage() {
               style={{
                 fontSize: 28,
                 fontWeight: 800,
-                color: '#F59E0B',
+                color: direction === 'purchase' ? '#F59E0B' : '#10B981',
                 margin: 0,
                 letterSpacing: '-0.02em',
                 fontFamily: 'var(--font-dm-mono)',
@@ -333,8 +394,8 @@ export default function SaudaPage() {
               fontSize: 15,
               fontWeight: 700,
               cursor: submitting ? 'not-allowed' : 'pointer',
-              background: submitting ? '#222637' : '#F59E0B',
-              color: submitting ? '#475569' : '#111827',
+              background: submitting ? '#222637' : direction === 'purchase' ? '#F59E0B' : '#10B981',
+              color: submitting ? '#475569' : direction === 'purchase' ? '#111827' : '#FFFFFF',
             }}
           >
             {submitting ? 'Saving…' : 'Record Sauda'}
@@ -343,24 +404,57 @@ export default function SaudaPage() {
 
         {loading ? (
           <p style={{ textAlign: 'center', color: '#475569', fontSize: 14 }}>Loading…</p>
-        ) : grouped.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p style={{ textAlign: 'center', color: '#475569', fontSize: 14, padding: '12px 8px' }}>
             No sauda recorded yet. Add your first deal above.
           </p>
         ) : (
+          <>
+            <div>
+              <p style={{ ...lbl, marginBottom: 8 }}>History</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setHistoryDirection('purchase')}
+                  style={{
+                    padding: '11px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                    background: historyDirection === 'purchase' ? '#F59E0B' : '#1A1D27',
+                    color: historyDirection === 'purchase' ? '#111827' : '#475569',
+                    border: historyDirection === 'purchase' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  Purchase deals
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryDirection('sale')}
+                  style={{
+                    padding: '11px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                    background: historyDirection === 'sale' ? '#10B981' : '#1A1D27',
+                    color: historyDirection === 'sale' ? '#FFFFFF' : '#475569',
+                    border: historyDirection === 'sale' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  Sale deals
+                </button>
+              </div>
+            </div>
+            {grouped.length === 0 ? (
+              <p style={{ textAlign: 'center', color: '#475569', fontSize: 14, padding: '8px 8px 4px' }}>
+                {historyDirection === 'purchase'
+                  ? 'No purchase deals yet. Record one above or switch to Sale deals.'
+                  : 'No sale deals yet. Record one above or switch to Purchase deals.'}
+              </p>
+            ) : (
           grouped.map(([itemName, list]) => {
             const newest = list[0]
             const prev = list[1]
             let trend: { text: string; color: string } | null = null
             if (newest && prev) {
               const diff = newest.rate - prev.rate
-              if (diff > 0.0001) {
-                trend = { text: `▲ ${formatRupees(Math.abs(diff))} since last deal`, color: '#F43F5E' }
-              } else if (diff < -0.0001) {
-                trend = { text: `▼ ${formatRupees(Math.abs(diff))} since last deal`, color: '#10B981' }
-              } else {
-                trend = { text: 'No change since last deal', color: '#475569' }
-              }
+              trend = trendForDirection(diff, historyDirection)
             }
 
             return (
@@ -430,6 +524,8 @@ export default function SaudaPage() {
               </div>
             )
           })
+            )}
+          </>
         )}
       </div>
 
