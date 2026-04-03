@@ -169,8 +169,8 @@ function PoweredByFooter() {
   const linkRow: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
-    minHeight: 18,
+    gap: 8,
+    minHeight: 22,
     textDecoration: 'none',
     opacity: 0.35,
   }
@@ -187,12 +187,14 @@ function PoweredByFooter() {
           rel="noopener noreferrer"
           style={linkRow}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <rect x="3" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
-            <rect x="13" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
-            <rect x="3" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" />
-            <rect x="13" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" opacity="0.4" />
-          </svg>
+          {/* eslint-disable-next-line @next/next/no-img-element -- external brand asset */}
+          <img
+            src="https://www.datacortex.in/images/datacortex-logo.png"
+            alt=""
+            width={88}
+            height={22}
+            style={{ height: 22, width: 'auto', maxWidth: 100, objectFit: 'contain', display: 'block', flexShrink: 0 }}
+          />
           <span style={{
             fontSize: 11,
             color: '#94A3B8',
@@ -204,7 +206,7 @@ function PoweredByFooter() {
         </a>
       ) : (
         <div style={{ ...linkRow, opacity: 0, pointerEvents: 'none' }} aria-hidden>
-          <span style={{ width: 14, height: 14, flexShrink: 0 }} />
+          <span style={{ width: 88, height: 22, flexShrink: 0 }} />
           <span style={{ width: 132, height: 11 }} />
         </div>
       )}
