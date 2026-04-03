@@ -15,11 +15,35 @@ interface CashEntry {
   created_at: string
 }
 
+interface Cheque {
+  id: string
+  direction: 'incoming' | 'outgoing'
+  party_name: string
+  amount: number
+  cheque_number: string | null
+  bank_name: string | null
+  due_date: string
+  status: 'pending' | 'deposited' | 'bounced'
+  photo_url: string | null
+  note: string | null
+}
+
 const defaultForm = { amount: '', note: '', date: new Date().toISOString().split('T')[0] }
+
+function dueDateLabel(dateStr: string): { text: string; color: string } {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const due = new Date(dateStr); due.setHours(0, 0, 0, 0)
+  const diff = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (diff < 0) return { text: `Overdue ${Math.abs(diff)}d`, color: '#F43F5E' }
+  if (diff === 0) return { text: 'Due today', color: '#F43F5E' }
+  if (diff === 1) return { text: 'Due tomorrow', color: '#F59E0B' }
+  return { text: `Due ${dateStr}`, color: '#475569' }
+}
 
 export default function CashPage() {
   const router = useRouter()
   const [entries, setEntries] = useState<CashEntry[]>([])
+  const [cheques, setCheques] = useState<Cheque[]>([])
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<'income' | 'expense' | null>(null)
   const [form, setForm] = useState(defaultForm)
@@ -28,13 +52,18 @@ export default function CashPage() {
   const [deleting, setDeleting] = useState(false)
   const [editingOpening, setEditingOpening] = useState(false)
   const [openingAmount, setOpeningAmount] = useState('')
+  const [pendingDeposit, setPendingDeposit] = useState<Cheque | null>(null)
+  const [pendingBounce, setPendingBounce] = useState<string | null>(null)
+  const [actioning, setActioning] = useState(false)
+  const [photoModal, setPhotoModal] = useState<string | null>(null)
 
   async function load() {
-    const { data, error } = await supabase
-      .from('cash_entries')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (!error) setEntries(data ?? [])
+    const [{ data: cashData }, { data: chequeData }] = await Promise.all([
+      supabase.from('cash_entries').select('*').order('created_at', { ascending: false }),
+      supabase.from('cheques').select('*').order('due_date', { ascending: true }),
+    ])
+    setEntries(cashData ?? [])
+    setCheques(chequeData ?? [])
     setLoading(false)
   }
 
@@ -45,6 +74,9 @@ export default function CashPage() {
   const income = entries.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0)
   const expense = entries.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
   const balance = opening + income - expense
+
+  const pendingCheques = cheques.filter(c => c.status === 'pending')
+  const pendingIncoming = pendingCheques.filter(c => c.direction === 'incoming').reduce((s, c) => s + c.amount, 0)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -94,6 +126,41 @@ export default function CashPage() {
     } catch { toast.error('Failed to update.') }
   }
 
+  async function handleDeposit() {
+    if (!pendingDeposit) return
+    setActioning(true)
+    try {
+      await supabase.from('cheques').update({ status: 'deposited' }).eq('id', pendingDeposit.id)
+      await supabase.from('cash_entries').insert({
+        type: 'income',
+        amount: pendingDeposit.amount,
+        note: `Cheque deposited — ${pendingDeposit.party_name}${pendingDeposit.cheque_number ? ` (${pendingDeposit.cheque_number})` : ''}`,
+        date: new Date().toISOString().split('T')[0],
+      })
+      toast.success('Cheque marked as deposited!')
+      setPendingDeposit(null)
+      await load()
+    } catch { toast.error('Failed to update.') }
+    finally { setActioning(false) }
+  }
+
+  async function handleBounce() {
+    if (!pendingBounce) return
+    setActioning(true)
+    try {
+      await supabase.from('cheques').update({ status: 'bounced' }).eq('id', pendingBounce)
+      toast.success('Cheque marked as bounced.')
+      setPendingBounce(null)
+      await load()
+    } catch { toast.error('Failed to update.') }
+    finally { setActioning(false) }
+  }
+
+  function getPhotoUrl(path: string): string {
+    const { data } = supabase.storage.from('cheques').getPublicUrl(path)
+    return data.publicUrl
+  }
+
   const visibleEntries = entries.filter(e => e.type !== 'opening')
 
   return (
@@ -107,24 +174,25 @@ export default function CashPage() {
         zIndex: 10,
       }}>
         <div style={{ padding: '14px 20px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F1F5F9' }}>Cash & Bank</h1>
             <button onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login') }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 4, display: 'flex', alignItems: 'center', minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
               <LogoutIcon />
             </button>
           </div>
-          {/* Balance display */}
           <div style={{ textAlign: 'center', paddingBottom: 4 }}>
             <p style={{ fontSize: 11, color: '#475569', fontWeight: 500, marginBottom: 4 }}>Current balance</p>
             {loading ? (
               <div style={{ height: 44, background: 'rgba(255,255,255,0.05)', borderRadius: 8, margin: '0 auto', width: 180 }} />
             ) : (
-              <p className="font-mono-numbers" style={{
-                fontSize: 38, fontWeight: 700, lineHeight: 1,
-                color: balance >= 0 ? '#10B981' : '#F43F5E',
-              }}>
+              <p className="font-mono-numbers" style={{ fontSize: 38, fontWeight: 700, lineHeight: 1, color: balance >= 0 ? '#10B981' : '#F43F5E' }}>
                 {formatNPR(balance)}
+              </p>
+            )}
+            {!loading && pendingIncoming > 0 && (
+              <p style={{ fontSize: 12, color: '#F59E0B', marginTop: 6, fontWeight: 500 }}>
+                + {formatNPR(pendingIncoming)} pending cheques to deposit
               </p>
             )}
           </div>
@@ -142,31 +210,17 @@ export default function CashPage() {
 
         {/* Quick actions */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <button
-            onClick={() => { setMode(mode === 'income' ? null : 'income'); setForm(defaultForm) }}
-            style={{
-              padding: '14px 0', borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              background: mode === 'income' ? '#10B981' : '#1A1D27',
-              color: mode === 'income' ? '#FFFFFF' : '#10B981',
-              border: mode === 'income' ? 'none' : '1px solid rgba(16,185,129,0.3)',
-              transition: 'all 0.15s',
-            }}>
+          <button onClick={() => { setMode(mode === 'income' ? null : 'income'); setForm(defaultForm) }}
+            style={{ padding: '14px 0', borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: 'pointer', background: mode === 'income' ? '#10B981' : '#1A1D27', color: mode === 'income' ? '#FFFFFF' : '#10B981', border: mode === 'income' ? 'none' : '1px solid rgba(16,185,129,0.3)', transition: 'all 0.15s' }}>
             + Income
           </button>
-          <button
-            onClick={() => { setMode(mode === 'expense' ? null : 'expense'); setForm(defaultForm) }}
-            style={{
-              padding: '14px 0', borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              background: mode === 'expense' ? '#F59E0B' : '#1A1D27',
-              color: mode === 'expense' ? '#111827' : '#F59E0B',
-              border: mode === 'expense' ? 'none' : '1px solid rgba(245,158,11,0.3)',
-              transition: 'all 0.15s',
-            }}>
+          <button onClick={() => { setMode(mode === 'expense' ? null : 'expense'); setForm(defaultForm) }}
+            style={{ padding: '14px 0', borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: 'pointer', background: mode === 'expense' ? '#F59E0B' : '#1A1D27', color: mode === 'expense' ? '#111827' : '#F59E0B', border: mode === 'expense' ? 'none' : '1px solid rgba(245,158,11,0.3)', transition: 'all 0.15s' }}>
             − Expense
           </button>
         </div>
 
-        {/* Opening balance row */}
+        {/* Opening balance */}
         <div style={{ background: '#1A1D27', borderRadius: 12, padding: '12px 16px', border: '1px solid rgba(255,255,255,0.07)' }}>
           {editingOpening ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -175,14 +229,8 @@ export default function CashPage() {
                 placeholder="0.00" autoFocus
                 style={{ width: '100%', padding: '11px 14px', background: '#0F1117', color: '#F1F5F9', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 16, boxSizing: 'border-box' as const, outline: 'none' }} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleSaveOpening}
-                  style={{ flex: 1, padding: '11px 0', background: '#F59E0B', color: '#111827', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-                  Save
-                </button>
-                <button onClick={() => setEditingOpening(false)}
-                  style={{ flex: 1, padding: '11px 0', background: 'rgba(255,255,255,0.07)', color: '#94A3B8', border: 'none', borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-                  Cancel
-                </button>
+                <button onClick={handleSaveOpening} style={{ flex: 1, padding: '11px 0', background: '#F59E0B', color: '#111827', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Save</button>
+                <button onClick={() => setEditingOpening(false)} style={{ flex: 1, padding: '11px 0', background: 'rgba(255,255,255,0.07)', color: '#94A3B8', border: 'none', borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Cancel</button>
               </div>
             </div>
           ) : (
@@ -208,29 +256,21 @@ export default function CashPage() {
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={lbl}>Amount (रू)</label>
-                <input type="number" min="0" step="any" value={form.amount}
-                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                  placeholder="0.00" autoFocus style={inp} required />
+                <input type="number" min="0" step="any" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" autoFocus style={inp} required />
               </div>
               <div>
                 <label style={lbl}>Note (what is this for?)</label>
-                <input type="text" value={form.note}
-                  onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-                  placeholder={mode === 'income' ? 'e.g. sale payment, advance...' : 'e.g. rent, salary, transport...'}
-                  style={inp} required />
+                <input type="text" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+                  placeholder={mode === 'income' ? 'e.g. sale payment, advance...' : 'e.g. rent, salary, transport...'} style={inp} required />
               </div>
               <div>
                 <label style={lbl}>Date</label>
-                <input type="date" value={form.date}
-                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                  style={inp} required />
+                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inp} required />
               </div>
               <button type="submit" disabled={submitting} style={{
-                width: '100%', padding: '13px 0', borderRadius: 10, border: 'none',
-                fontSize: 15, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
+                width: '100%', padding: '13px 0', borderRadius: 10, border: 'none', fontSize: 15, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
                 background: submitting ? '#222637' : mode === 'income' ? '#10B981' : '#F59E0B',
-                color: submitting ? '#475569' : mode === 'income' ? '#FFFFFF' : '#111827',
-                opacity: submitting ? 0.8 : 1,
+                color: submitting ? '#475569' : mode === 'income' ? '#FFFFFF' : '#111827', opacity: submitting ? 0.8 : 1,
               }}>
                 {submitting ? 'Saving…' : `Save ${mode === 'income' ? 'Income' : 'Expense'}`}
               </button>
@@ -238,9 +278,71 @@ export default function CashPage() {
           </div>
         )}
 
-        {/* Entries list */}
+        {/* Pending Cheques */}
+        {pendingCheques.length > 0 && (
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 10 }}>Pending Cheques</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {pendingCheques.map(cheque => {
+                const isIncoming = cheque.direction === 'incoming'
+                const dl = dueDateLabel(cheque.due_date)
+                return (
+                  <div key={cheque.id} style={{ background: '#1A1D27', borderRadius: 14, padding: '14px 16px', border: `1px solid ${dl.color === '#F43F5E' ? 'rgba(244,63,94,0.25)' : dl.color === '#F59E0B' ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.07)'}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: isIncoming ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)', color: isIncoming ? '#10B981' : '#F43F5E' }}>
+                            {isIncoming ? '↓ To Deposit' : '↑ To Pay'}
+                          </span>
+                          <span style={{ fontSize: 11, color: dl.color, fontWeight: 600 }}>{dl.text}</span>
+                        </div>
+                        <p style={{ fontSize: 14, fontWeight: 700, color: '#F1F5F9', marginBottom: 2 }}>{cheque.party_name}</p>
+                        {(cheque.cheque_number || cheque.bank_name) && (
+                          <p style={{ fontSize: 11, color: '#475569' }}>
+                            {[cheque.cheque_number, cheque.bank_name].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right', marginLeft: 12 }}>
+                        <p className="font-mono-numbers" style={{ fontSize: 16, fontWeight: 700, color: isIncoming ? '#10B981' : '#F43F5E' }}>
+                          {formatNPR(cheque.amount)}
+                        </p>
+                        {cheque.photo_url && (
+                          <button onClick={() => setPhotoModal(getPhotoUrl(cheque.photo_url!))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#F59E0B', fontSize: 11, fontWeight: 600, padding: '4px 0' }}>
+                            📷 View
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {isIncoming && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button onClick={() => setPendingDeposit(cheque)}
+                          style={{ flex: 1, padding: '10px 0', background: 'rgba(16,185,129,0.15)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                          ✓ Mark Deposited
+                        </button>
+                        <button onClick={() => setPendingBounce(cheque.id)}
+                          style={{ padding: '10px 16px', background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                          Bounced
+                        </button>
+                      </div>
+                    )}
+                    {!isIncoming && (
+                      <button onClick={() => setPendingBounce(cheque.id)}
+                        style={{ width: '100%', marginTop: 10, padding: '10px 0', background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                        Mark as Paid / Bounced
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Cash Entries list */}
         <div>
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 10 }}>Entries</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 10 }}>Cash Entries</p>
           {loading ? (
             <div style={cardStyle}>
               {[1, 2, 3].map((i, idx) => (
@@ -255,9 +357,7 @@ export default function CashPage() {
             </div>
           ) : visibleEntries.length === 0 ? (
             <div style={{ ...cardStyle, padding: '32px 20px', textAlign: 'center' }}>
-              <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
-                No entries yet.{'\n'}Set your opening balance to get started.
-              </p>
+              <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>No entries yet. Set your opening balance to get started.</p>
             </div>
           ) : (
             <div style={cardStyle}>
@@ -289,9 +389,25 @@ export default function CashPage() {
 
       </div>
 
+      {/* Photo modal */}
+      {photoModal && (
+        <div onClick={() => setPhotoModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photoModal} alt="Cheque" style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 12, objectFit: 'contain' }} />
+        </div>
+      )}
+
       <ConfirmDialog open={!!pendingDelete} title="Delete this entry?"
         message="This cash entry will be permanently removed."
         onCancel={() => setPendingDelete(null)} onConfirm={handleDelete} loading={deleting} />
+
+      <ConfirmDialog open={!!pendingDeposit} title="Mark cheque as deposited?"
+        message={`This will add ${pendingDeposit ? formatNPR(pendingDeposit.amount) : ''} to your cash balance.`}
+        onCancel={() => setPendingDeposit(null)} onConfirm={handleDeposit} loading={actioning} />
+
+      <ConfirmDialog open={!!pendingBounce} title="Mark as bounced / paid?"
+        message="This cheque will be marked as closed. No cash entry will be created."
+        onCancel={() => setPendingBounce(null)} onConfirm={handleBounce} loading={actioning} />
     </div>
   )
 }

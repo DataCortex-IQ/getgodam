@@ -21,6 +21,7 @@ interface Transaction {
   note: string | null
   ledger_id: string
   item_id: string
+  payment_method: 'cash' | 'cheque' | 'credit' | null
   ledgers: { name: string } | null
   items: { name: string } | null
 }
@@ -44,15 +45,20 @@ export default function DashboardPage() {
   const [showAll, setShowAll] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [cashBalance, setCashBalance] = useState<number | null>(null)
+  const [urgentCheques, setUrgentCheques] = useState<{ due_today: number; due_tomorrow: number }>({ due_today: 0, due_tomorrow: 0 })
 
   async function load() {
     try {
-      const [{ data: txData }, inv, { data: cashData }] = await Promise.all([
+      const today = new Date().toISOString().split('T')[0]
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+
+      const [{ data: txData }, inv, { data: cashData }, { data: chequeData }] = await Promise.all([
         supabase.from('transactions')
-          .select(`id, type, quantity, rate, vat_pct, total_amount, date, invoice_no, note, ledger_id, item_id, ledgers (name), items (name)`)
+          .select(`id, type, quantity, rate, vat_pct, total_amount, date, invoice_no, note, ledger_id, item_id, payment_method, ledgers (name), items (name)`)
           .order('created_at', { ascending: false }),
         getInventory(),
         supabase.from('cash_entries').select('type, amount'),
+        supabase.from('cheques').select('due_date').eq('status', 'pending').lte('due_date', tomorrow),
       ])
       setTransactions((txData as unknown as Transaction[]) ?? [])
       setInventory(inv)
@@ -61,6 +67,12 @@ export default function DashboardPage() {
         const income = cashData.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0)
         const expense = cashData.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
         setCashBalance(opening + income - expense)
+      }
+      if (chequeData) {
+        setUrgentCheques({
+          due_today: chequeData.filter(c => c.due_date === today).length,
+          due_tomorrow: chequeData.filter(c => c.due_date === tomorrow).length,
+        })
       }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
@@ -185,6 +197,30 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Cheque alert banner */}
+        {!loading && urgentCheques.due_today > 0 && (
+          <div style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <p style={{ color: '#F43F5E', fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
+                {urgentCheques.due_today} cheque{urgentCheques.due_today !== 1 ? 's' : ''} due today
+              </p>
+              <p style={{ color: '#475569', fontSize: 12 }}>Tap to view and deposit</p>
+            </div>
+            <Link href="/cash" style={{ color: '#F43F5E', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>View →</Link>
+          </div>
+        )}
+        {!loading && urgentCheques.due_today === 0 && urgentCheques.due_tomorrow > 0 && (
+          <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <p style={{ color: '#F59E0B', fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
+                {urgentCheques.due_tomorrow} cheque{urgentCheques.due_tomorrow !== 1 ? 's' : ''} due tomorrow
+              </p>
+              <p style={{ color: '#475569', fontSize: 12 }}>Don&apos;t miss it</p>
+            </div>
+            <Link href="/cash" style={{ color: '#F59E0B', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>View →</Link>
+          </div>
+        )}
+
         {/* Cash balance */}
         {!loading && cashBalance !== null && (
           <Link href="/cash" style={{ textDecoration: 'none' }}>
@@ -292,7 +328,18 @@ export default function DashboardPage() {
                     <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: 10 }}>
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: isPurchase ? '#F59E0B' : '#10B981', flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9', marginBottom: 2 }}>{tx.ledgers?.name ?? '—'}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9' }}>{tx.ledgers?.name ?? '—'}</p>
+                          {tx.payment_method && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+                              background: tx.payment_method === 'cash' ? 'rgba(16,185,129,0.15)' : tx.payment_method === 'cheque' ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.15)',
+                              color: tx.payment_method === 'cash' ? '#10B981' : tx.payment_method === 'cheque' ? '#F59E0B' : '#64748B',
+                            }}>
+                              {tx.payment_method.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
                         <p style={{ fontSize: 12, color: '#475569' }}>
                           {tx.items?.name ?? '—'}{tx.note ? ` · ${tx.note}` : ''} · {tx.quantity} units
                         </p>

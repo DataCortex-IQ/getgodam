@@ -1,6 +1,8 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 
 const tabs = [
   {
@@ -75,6 +77,19 @@ const tabs = [
 
 export default function BottomNav() {
   const path = usePathname()
+  const [dueSoon, setDueSoon] = useState(0)
+
+  useEffect(() => {
+    if (path === '/login') return
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+    supabase
+      .from('cheques')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .lte('due_date', tomorrow)
+      .then(({ count }) => setDueSoon(count ?? 0))
+  }, [path])
+
   if (path === '/login') return null
 
   return (
@@ -88,6 +103,7 @@ export default function BottomNav() {
     }}>
       {tabs.map(tab => {
         const active = path.startsWith(tab.href)
+        const showBadge = tab.href === '/cash' && dueSoon > 0
         return (
           <Link key={tab.href} href={tab.href} style={{
             flex: 1,
@@ -103,8 +119,23 @@ export default function BottomNav() {
             minHeight: 56,
             transition: 'color 0.15s',
             WebkitTapHighlightColor: 'transparent',
+            position: 'relative',
           }}>
-            {tab.icon(active)}
+            <span style={{ position: 'relative', display: 'inline-flex' }}>
+              {tab.icon(active)}
+              {showBadge && (
+                <span style={{
+                  position: 'absolute', top: -4, right: -8,
+                  background: '#F43F5E', color: 'white',
+                  fontSize: 9, fontWeight: 700,
+                  borderRadius: 10, padding: '1px 5px',
+                  minWidth: 16, textAlign: 'center',
+                  lineHeight: '14px',
+                }}>
+                  {dueSoon}
+                </span>
+              )}
+            </span>
             <span>{tab.label}</span>
           </Link>
         )
