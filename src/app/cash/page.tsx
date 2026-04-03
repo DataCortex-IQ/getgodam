@@ -13,6 +13,21 @@ interface CashEntry {
   note: string
   date: string
   created_at: string
+  category?: string | null
+}
+
+interface PettyCashRow {
+  id: string
+  party_name: string | null
+  item: string | null
+  quantity: number | null
+  rate: number | null
+  amount: number
+  purpose: string
+  note: string | null
+  date: string
+  cash_entry_id: string
+  created_at: string
 }
 
 interface Cheque {
@@ -29,6 +44,17 @@ interface Cheque {
 }
 
 const defaultForm = { amount: '', note: '', date: new Date().toISOString().split('T')[0] }
+
+const defaultPettyForm = {
+  purpose: '',
+  party_name: '',
+  item: '',
+  quantity: '',
+  rate: '',
+  amount: '',
+  date: new Date().toISOString().split('T')[0],
+  note: '',
+}
 
 function dueDateLabel(dateStr: string): { text: string; color: string } {
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -56,18 +82,35 @@ export default function CashPage() {
   const [pendingBounce, setPendingBounce] = useState<string | null>(null)
   const [actioning, setActioning] = useState(false)
   const [photoModal, setPhotoModal] = useState<string | null>(null)
+  const [pettyRows, setPettyRows] = useState<PettyCashRow[]>([])
+  const [showPettyForm, setShowPettyForm] = useState(false)
+  const [pettyForm, setPettyForm] = useState(defaultPettyForm)
+  const [pettySubmitting, setPettySubmitting] = useState(false)
+  const [pendingPettyDelete, setPendingPettyDelete] = useState<string | null>(null)
+  const [deletingPetty, setDeletingPetty] = useState(false)
 
   async function load() {
-    const [{ data: cashData }, { data: chequeData }] = await Promise.all([
+    const [{ data: cashData }, { data: chequeData }, { data: pettyData }] = await Promise.all([
       supabase.from('cash_entries').select('*').order('created_at', { ascending: false }),
       supabase.from('cheques').select('*').order('due_date', { ascending: true }),
+      supabase.from('petty_cash').select('*').order('created_at', { ascending: false }).limit(10),
     ])
     setEntries(cashData ?? [])
     setCheques(chequeData ?? [])
+    setPettyRows((pettyData as PettyCashRow[]) ?? [])
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    const q = parseFloat(pettyForm.quantity)
+    const r = parseFloat(pettyForm.rate)
+    if (!Number.isNaN(q) && !Number.isNaN(r) && q > 0 && r > 0) {
+      const next = String(Math.round(q * r * 100) / 100)
+      setPettyForm(f => (f.amount === next ? f : { ...f, amount: next }))
+    }
+  }, [pettyForm.quantity, pettyForm.rate])
 
   const openingEntry = entries.find(e => e.type === 'opening')
   const opening = openingEntry?.amount ?? 0
@@ -161,7 +204,66 @@ export default function CashPage() {
     return data.publicUrl
   }
 
-  const visibleEntries = entries.filter(e => e.type !== 'opening')
+  const visibleEntries = entries.filter(e => e.type !== 'opening' && e.category !== 'petty_cash')
+
+  const qtyN = parseFloat(pettyForm.quantity) || 0
+  const rateN = parseFloat(pettyForm.rate) || 0
+  const computedPettyAmount = qtyN > 0 && rateN > 0 ? qtyN * rateN : null
+
+  async function handlePettySubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const purpose = pettyForm.purpose.trim()
+    if (!purpose) { toast.error('Enter a purpose.'); return }
+    const amt = computedPettyAmount != null ? computedPettyAmount : parseFloat(pettyForm.amount)
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount.'); return }
+    setPettySubmitting(true)
+    try {
+      const cashNote = `Petty cash — ${purpose}${pettyForm.party_name.trim() ? ` · ${pettyForm.party_name.trim()}` : ''}`
+      const { data: cashRow, error: cashErr } = await supabase.from('cash_entries').insert({
+        type: 'expense',
+        amount: amt,
+        note: cashNote,
+        date: pettyForm.date,
+        category: 'petty_cash',
+      }).select().single()
+      if (cashErr) throw cashErr
+      const { error: pettyErr } = await supabase.from('petty_cash').insert({
+        party_name: pettyForm.party_name.trim() || null,
+        item: pettyForm.item.trim() || null,
+        quantity: parseFloat(pettyForm.quantity) > 0 ? parseFloat(pettyForm.quantity) : null,
+        rate: parseFloat(pettyForm.rate) > 0 ? parseFloat(pettyForm.rate) : null,
+        amount: amt,
+        purpose,
+        note: pettyForm.note.trim() || null,
+        date: pettyForm.date,
+        cash_entry_id: cashRow.id,
+      })
+      if (pettyErr) throw pettyErr
+      toast.success('Expense recorded')
+      setPettyForm(defaultPettyForm)
+      setShowPettyForm(false)
+      await load()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to save petty cash.')
+    }
+    finally { setPettySubmitting(false) }
+  }
+
+  async function handleDeletePetty() {
+    if (!pendingPettyDelete) return
+    const row = pettyRows.find(p => p.id === pendingPettyDelete)
+    if (!row) { setPendingPettyDelete(null); return }
+    setDeletingPetty(true)
+    try {
+      const { error } = await supabase.from('cash_entries').delete().eq('id', row.cash_entry_id)
+      if (error) throw error
+      toast.success('Petty cash removed.')
+      setPendingPettyDelete(null)
+      await load()
+    } catch { toast.error('Failed to delete.') }
+    finally { setDeletingPetty(false) }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -340,6 +442,115 @@ export default function CashPage() {
           </div>
         )}
 
+        {/* Petty Cash */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8' }}>Petty Cash</p>
+            <button type="button" onClick={() => {
+              setShowPettyForm(v => {
+                if (v) setPettyForm(defaultPettyForm)
+                return !v
+              })
+            }}
+              style={{ padding: '6px 12px', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', background: '#F59E0B', color: '#111827', border: 'none' }}>
+              {showPettyForm ? 'Close' : '+ Add'}
+            </button>
+          </div>
+          {showPettyForm && (
+            <form onSubmit={handlePettySubmit} className="fade-in" style={{ background: '#1A1D27', borderRadius: 12, padding: '16px', border: '1px solid rgba(245,158,11,0.25)', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500 }}>Small expenses — labour, transport, supplies (no stock)</p>
+              <div>
+                <label style={lbl}>Purpose *</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                  {(['Labour', 'Transport', 'Office', 'Other'] as const).map(label => {
+                    const active = pettyForm.purpose === label
+                    return (
+                      <button key={label} type="button" onClick={() => setPettyForm(f => ({ ...f, purpose: label }))}
+                        style={{
+                          padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                          background: active ? 'rgba(245,158,11,0.15)' : '#0F1117',
+                          color: active ? '#F59E0B' : '#94A3B8',
+                          border: active ? '1px solid #F59E0B' : '1px solid rgba(245,158,11,0.35)',
+                        }}>
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <input type="text" value={pettyForm.purpose} onChange={e => setPettyForm(f => ({ ...f, purpose: e.target.value }))}
+                  placeholder="Or type a custom purpose…" style={inp} required />
+              </div>
+              <div>
+                <label style={lbl}>Party Name (optional)</label>
+                <input type="text" value={pettyForm.party_name} onChange={e => setPettyForm(f => ({ ...f, party_name: e.target.value }))} placeholder="Who you paid" style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>Item (optional)</label>
+                <input type="text" value={pettyForm.item} onChange={e => setPettyForm(f => ({ ...f, item: e.target.value }))} placeholder="What it was for" style={inp} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={lbl}>Quantity (optional)</label>
+                  <input type="number" min="0" step="any" value={pettyForm.quantity} onChange={e => setPettyForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0" style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Rate (optional)</label>
+                  <input type="number" min="0" step="any" value={pettyForm.rate} onChange={e => setPettyForm(f => ({ ...f, rate: e.target.value }))} placeholder="0" style={inp} />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Amount * (रू)</label>
+                <input type="number" min="0" step="any" value={pettyForm.amount} onChange={e => setPettyForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="0.00" className="font-mono-numbers" style={{ ...inp, fontSize: 20, fontWeight: 700 }} required />
+              </div>
+              <div>
+                <label style={lbl}>Date</label>
+                <input type="date" value={pettyForm.date} onChange={e => setPettyForm(f => ({ ...f, date: e.target.value }))} style={inp} required />
+              </div>
+              <div>
+                <label style={lbl}>Note (optional)</label>
+                <textarea value={pettyForm.note} onChange={e => setPettyForm(f => ({ ...f, note: e.target.value }))}
+                  placeholder="Extra detail…" rows={3} style={{ ...inp, resize: 'vertical', minHeight: 72 }} />
+              </div>
+              <button type="submit" disabled={pettySubmitting} style={{
+                width: '100%', padding: '13px 0', borderRadius: 10, border: 'none', fontSize: 15, fontWeight: 700, cursor: pettySubmitting ? 'not-allowed' : 'pointer',
+                background: pettySubmitting ? '#222637' : '#F59E0B', color: pettySubmitting ? '#475569' : '#111827',
+              }}>
+                {pettySubmitting ? 'Saving…' : 'Record Expense'}
+              </button>
+            </form>
+          )}
+          {loading ? (
+            <div style={{ ...cardStyle, padding: 16 }}><div style={{ height: 40, background: 'rgba(255,255,255,0.06)', borderRadius: 8 }} /></div>
+          ) : pettyRows.length === 0 ? (
+            <div style={{ ...cardStyle, padding: '24px 16px', textAlign: 'center' }}>
+              <p style={{ fontSize: 13, color: '#475569' }}>No petty cash entries yet</p>
+            </div>
+          ) : (
+            <div style={cardStyle}>
+              {pettyRows.map((p, idx) => (
+                <div key={p.id}>
+                  {idx > 0 && <div style={divider} />}
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: '#F1F5F9', marginBottom: 2 }}>{p.purpose}</p>
+                      {p.party_name && <p style={{ fontSize: 12, color: '#475569' }}>{p.party_name}</p>}
+                      <p style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{p.date}</p>
+                    </div>
+                    <p className="font-mono-numbers" style={{ fontSize: 14, fontWeight: 700, color: '#F43F5E', flexShrink: 0 }}>
+                      −{formatNPR(p.amount)}
+                    </p>
+                    <button type="button" onClick={() => setPendingPettyDelete(p.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#374151', padding: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
+                      <TrashIcon />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Cash Entries list */}
         <div>
           <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 10 }}>Cash Entries</p>
@@ -408,6 +619,10 @@ export default function CashPage() {
       <ConfirmDialog open={!!pendingBounce} title="Mark as bounced / paid?"
         message="This cheque will be marked as closed. No cash entry will be created."
         onCancel={() => setPendingBounce(null)} onConfirm={handleBounce} loading={actioning} />
+
+      <ConfirmDialog open={!!pendingPettyDelete} title="Delete this petty cash entry?"
+        message="This removes the expense and restores your cash balance for that amount."
+        onCancel={() => setPendingPettyDelete(null)} onConfirm={handleDeletePetty} loading={deletingPetty} />
     </div>
   )
 }

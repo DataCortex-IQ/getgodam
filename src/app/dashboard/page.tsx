@@ -46,19 +46,24 @@ export default function DashboardPage() {
   const [loggingOut, setLoggingOut] = useState(false)
   const [cashBalance, setCashBalance] = useState<number | null>(null)
   const [urgentCheques, setUrgentCheques] = useState<{ due_today: number; due_tomorrow: number }>({ due_today: 0, due_tomorrow: 0 })
+  const [pettyMonthTotal, setPettyMonthTotal] = useState(0)
 
   async function load() {
     try {
       const today = new Date().toISOString().split('T')[0]
       const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
 
-      const [{ data: txData }, inv, { data: cashData }, { data: chequeData }] = await Promise.all([
+      const [{ data: txData }, inv, { data: cashData }, { data: chequeData }, { data: pettyMonth }] = await Promise.all([
         supabase.from('transactions')
           .select(`id, type, quantity, rate, vat_pct, total_amount, date, invoice_no, note, ledger_id, item_id, payment_method, ledgers (name), items (name)`)
           .order('created_at', { ascending: false }),
         getInventory(),
         supabase.from('cash_entries').select('type, amount'),
         supabase.from('cheques').select('due_date').eq('status', 'pending').lte('due_date', tomorrow),
+        supabase.from('petty_cash').select('amount').gte('date', monthStart).lte('date', monthEnd),
       ])
       setTransactions((txData as unknown as Transaction[]) ?? [])
       setInventory(inv)
@@ -73,6 +78,9 @@ export default function DashboardPage() {
           due_today: chequeData.filter(c => c.due_date === today).length,
           due_tomorrow: chequeData.filter(c => c.due_date === tomorrow).length,
         })
+      }
+      if (pettyMonth) {
+        setPettyMonthTotal(pettyMonth.reduce((s, r) => s + Number(r.amount), 0))
       }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
@@ -196,6 +204,25 @@ export default function DashboardPage() {
             </>
           )}
         </div>
+
+        {/* This month petty cash */}
+        {!loading && (
+          <Link href="/cash" style={{ textDecoration: 'none' }}>
+            <div style={{
+              background: '#1A1D27', borderRadius: 14, padding: '12px 16px',
+              border: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div>
+                <p style={{ fontSize: 11, color: '#475569', fontWeight: 500, marginBottom: 4 }}>This month (petty cash)</p>
+                <p className="font-mono-numbers" style={{ fontSize: 16, fontWeight: 700, color: '#F43F5E' }}>
+                  {formatNPR(pettyMonthTotal)}
+                </p>
+              </div>
+              <span style={{ fontSize: 12, color: '#475569' }}>Cash →</span>
+            </div>
+          </Link>
+        )}
 
         {/* Cheque alert banner */}
         {!loading && urgentCheques.due_today > 0 && (
