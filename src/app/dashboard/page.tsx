@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { formatNPR } from '@/lib/format'
@@ -31,15 +30,12 @@ function Skeleton({ w = '100%', h = 20, r = 8 }: { w?: string | number; h?: numb
 }
 
 export default function DashboardPage() {
-  const router = useRouter()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [showAll, setShowAll] = useState(false)
-  const [loggingOut, setLoggingOut] = useState(false)
-
   async function load() {
     try {
       const [{ data: txData }, inv] = await Promise.all([
@@ -55,12 +51,6 @@ export default function DashboardPage() {
   }
 
   useEffect(() => { load() }, [])
-
-  async function handleLogout() {
-    setLoggingOut(true)
-    await fetch('/api/auth/logout', { method: 'POST' })
-    router.push('/login')
-  }
 
   async function handleDelete() {
     if (!pendingDelete) return
@@ -102,13 +92,7 @@ export default function DashboardPage() {
             <span className="font-mono-numbers" style={{ fontSize: 22, fontWeight: 700, color: '#F59E0B', letterSpacing: '-0.5px' }}>
               godam
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 12, color: '#475569' }}>{today}</span>
-              <button onClick={handleLogout} disabled={loggingOut}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 6, display: 'flex', alignItems: 'center', opacity: loggingOut ? 0.4 : 1, minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
-                <LogoutIcon />
-              </button>
-            </div>
+            <span style={{ fontSize: 12, color: '#475569' }}>{today}</span>
           </div>
         </div>
       </div>
@@ -277,14 +261,6 @@ export default function DashboardPage() {
         message="This transaction will be permanently removed and cannot be undone."
         onCancel={() => setPendingDelete(null)} onConfirm={handleDelete} loading={deleting} />
     </div>
-  )
-}
-
-function LogoutIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
-    </svg>
   )
 }
 

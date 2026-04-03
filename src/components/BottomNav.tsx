@@ -1,6 +1,8 @@
 'use client'
+import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 const tabs = [
   {
@@ -62,40 +64,89 @@ const tabs = [
 
 export default function BottomNav() {
   const path = usePathname()
+  const router = useRouter()
+  const [showLogout, setShowLogout] = useState(false)
+
   if (path === '/login') return null
 
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }
+
   return (
-    <nav style={{
-      background: '#1A1D27',
-      borderTop: '1px solid rgba(255,255,255,0.07)',
-      display: 'flex',
-      flexShrink: 0,
-      paddingBottom: 'env(safe-area-inset-bottom)',
-      zIndex: 50,
-    }}>
-      {tabs.map(tab => {
-        const active = path.startsWith(tab.href)
-        return (
-          <Link key={tab.href} href={tab.href} style={{
+    <>
+      <nav style={{
+        background: '#1A1D27',
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex',
+        flexShrink: 0,
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        zIndex: 50,
+      }}>
+        {tabs.map(tab => {
+          const active = path.startsWith(tab.href)
+          return (
+            <Link key={tab.href} href={tab.href} style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              padding: '10px 0 8px',
+              color: active ? '#F59E0B' : '#475569',
+              textDecoration: 'none',
+              fontSize: 10,
+              fontWeight: active ? 600 : 400,
+              gap: 4,
+              minHeight: 56,
+              transition: 'color 0.15s',
+              WebkitTapHighlightColor: 'transparent',
+            }}>
+              {tab.icon(active)}
+              <span>{tab.label}</span>
+            </Link>
+          )
+        })}
+
+        {/* Logout button */}
+        <button
+          onClick={() => setShowLogout(true)}
+          style={{
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             padding: '10px 0 8px',
-            color: active ? '#F59E0B' : '#475569',
-            textDecoration: 'none',
+            color: '#475569',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
             fontSize: 10,
-            fontWeight: active ? 600 : 400,
+            fontWeight: 400,
             gap: 4,
             minHeight: 56,
-            transition: 'color 0.15s',
             WebkitTapHighlightColor: 'transparent',
-          }}>
-            {tab.icon(active)}
-            <span>{tab.label}</span>
-          </Link>
-        )
-      })}
-    </nav>
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <polyline points="16 17 21 12 16 7"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="21" y1="12" x2="9" y2="12"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <span>Logout</span>
+        </button>
+      </nav>
+
+      <ConfirmDialog
+        open={showLogout}
+        title="Log out?"
+        message="You'll need to enter your password to get back in."
+        onCancel={() => setShowLogout(false)}
+        onConfirm={handleLogout}
+      />
+    </>
   )
 }
