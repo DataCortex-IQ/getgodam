@@ -89,6 +89,8 @@ const defaultPettyForm = {
   note: '',
 }
 
+const defaultEditPettyForm = { ...defaultPettyForm }
+
 function dueDateLabel(dateStr: string): { text: string; color: string } {
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const due = new Date(dateStr); due.setHours(0, 0, 0, 0)
@@ -121,6 +123,9 @@ export default function CashPage() {
   const [pettySubmitting, setPettySubmitting] = useState(false)
   const [pendingPettyDelete, setPendingPettyDelete] = useState<string | null>(null)
   const [deletingPetty, setDeletingPetty] = useState(false)
+  const [editingPettyCashId, setEditingPettyCashId] = useState<string | null>(null)
+  const [editPettyForm, setEditPettyForm] = useState(defaultEditPettyForm)
+  const [pettyEditSubmitting, setPettyEditSubmitting] = useState(false)
   const [cashTxRows, setCashTxRows] = useState<CashTransactionRow[]>([])
 
   async function load() {
@@ -150,6 +155,16 @@ export default function CashPage() {
       setPettyForm(f => (f.amount === next ? f : { ...f, amount: next }))
     }
   }, [pettyForm.quantity, pettyForm.rate])
+
+  useEffect(() => {
+    if (!editingPettyCashId) return
+    const q = parseFloat(editPettyForm.quantity)
+    const r = parseFloat(editPettyForm.rate)
+    if (!Number.isNaN(q) && !Number.isNaN(r) && q > 0 && r > 0) {
+      const next = String(Math.round(q * r * 100) / 100)
+      setEditPettyForm(f => (f.amount === next ? f : { ...f, amount: next }))
+    }
+  }, [editingPettyCashId, editPettyForm.quantity, editPettyForm.rate])
 
   const openingEntry = entries.find(e => e.type === 'opening')
   const opening = openingEntry?.amount ?? 0
@@ -320,9 +335,76 @@ export default function CashPage() {
       if (error) throw error
       toast.success('Petty cash removed.')
       setPendingPettyDelete(null)
+      if (editingPettyCashId === row.id) setEditingPettyCashId(null)
       await load()
     } catch { toast.error('Failed to delete.') }
     finally { setDeletingPetty(false) }
+  }
+
+  function openPettyEdit(p: PettyCashRow) {
+    if (editingPettyCashId === p.id) {
+      setEditingPettyCashId(null)
+      return
+    }
+    setEditingPettyCashId(p.id)
+    setEditPettyForm({
+      purpose: p.purpose,
+      party_name: p.party_name ?? '',
+      item: p.item ?? '',
+      quantity: p.quantity != null && p.quantity > 0 ? String(p.quantity) : '',
+      rate: p.rate != null && p.rate > 0 ? String(p.rate) : '',
+      amount: String(p.amount),
+      date: p.date,
+      note: p.note ?? '',
+    })
+  }
+
+  async function handleSavePettyEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingPettyCashId) return
+    const purpose = editPettyForm.purpose.trim()
+    if (!purpose) { toast.error('Enter a purpose.'); return }
+    const q = parseFloat(editPettyForm.quantity)
+    const r = parseFloat(editPettyForm.rate)
+    let amt: number
+    if (!Number.isNaN(q) && !Number.isNaN(r) && q > 0 && r > 0) {
+      amt = Math.round(q * r * 100) / 100
+    } else {
+      amt = parseFloat(editPettyForm.amount)
+    }
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount.'); return }
+
+    const row = pettyRows.find(pr => pr.id === editingPettyCashId)
+    if (!row) { setEditingPettyCashId(null); return }
+
+    const cashNote = `Petty cash — ${purpose}${editPettyForm.party_name.trim() ? ` · ${editPettyForm.party_name.trim()}` : ''}`
+    setPettyEditSubmitting(true)
+    try {
+      const { error: pErr } = await supabase.from('petty_cash').update({
+        purpose,
+        party_name: editPettyForm.party_name.trim() || null,
+        item: editPettyForm.item.trim() || null,
+        quantity: !Number.isNaN(q) && q > 0 ? q : null,
+        rate: !Number.isNaN(r) && r > 0 ? r : null,
+        amount: amt,
+        note: editPettyForm.note.trim() || null,
+        date: editPettyForm.date,
+      }).eq('id', editingPettyCashId)
+      if (pErr) throw pErr
+      const { error: cErr } = await supabase.from('cash_entries').update({
+        amount: amt,
+        note: cashNote,
+        date: editPettyForm.date,
+      }).eq('id', row.cash_entry_id)
+      if (cErr) throw cErr
+      toast.success('Expense updated')
+      setEditingPettyCashId(null)
+      await load()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to update.')
+    }
+    finally { setPettyEditSubmitting(false) }
   }
 
   return (
@@ -403,7 +485,7 @@ export default function CashPage() {
               </div>
               <button onClick={() => { setEditingOpening(true); setOpeningAmount(String(opening)) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 6, display: 'flex', alignItems: 'center', minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
-                <SmallPencilIcon />
+                <PencilIcon />
               </button>
             </div>
           )}
@@ -600,11 +682,91 @@ export default function CashPage() {
                     <p className="font-mono-numbers" style={{ fontSize: 14, fontWeight: 700, color: '#F43F5E', flexShrink: 0 }}>
                       −{formatNPR(p.amount)}
                     </p>
+                    <button type="button" onClick={() => openPettyEdit(p)}
+                      aria-label={editingPettyCashId === p.id ? 'Close edit' : 'Edit petty cash'}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', color: editingPettyCashId === p.id ? '#F59E0B' : '#6B7280',
+                        padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, minHeight: 32, flexShrink: 0,
+                      }}>
+                      <PencilIcon />
+                    </button>
                     <button type="button" onClick={() => setPendingPettyDelete(p.id)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#374151', padding: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
                       <TrashIcon />
                     </button>
                   </div>
+                  {editingPettyCashId === p.id && (
+                    <form onSubmit={handleSavePettyEdit} className="fade-in" style={pettyInlineEditForm}>
+                      <div>
+                        <label style={lbl}>Purpose *</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                          {(['Labour', 'Transport', 'Office', 'Other'] as const).map(label => {
+                            const active = editPettyForm.purpose === label
+                            return (
+                              <button key={label} type="button" onClick={() => setEditPettyForm(f => ({ ...f, purpose: label }))}
+                                style={{
+                                  padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                  background: active ? 'rgba(245,158,11,0.15)' : '#1A1D27',
+                                  color: active ? '#F59E0B' : '#94A3B8',
+                                  border: active ? '1px solid #F59E0B' : '1px solid rgba(245,158,11,0.35)',
+                                }}>
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <input type="text" value={editPettyForm.purpose} onChange={e => setEditPettyForm(f => ({ ...f, purpose: e.target.value }))}
+                          placeholder="Or type a custom purpose…" style={inp} required />
+                      </div>
+                      <div>
+                        <label style={lbl}>Party Name (optional)</label>
+                        <input type="text" value={editPettyForm.party_name} onChange={e => setEditPettyForm(f => ({ ...f, party_name: e.target.value }))} placeholder="Who you paid" style={inp} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Item (optional)</label>
+                        <input type="text" value={editPettyForm.item} onChange={e => setEditPettyForm(f => ({ ...f, item: e.target.value }))} placeholder="What it was for" style={inp} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div>
+                          <label style={lbl}>Quantity (optional)</label>
+                          <input type="number" min="0" step="any" value={editPettyForm.quantity} onChange={e => setEditPettyForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0" style={inp} />
+                        </div>
+                        <div>
+                          <label style={lbl}>Rate (optional)</label>
+                          <input type="number" min="0" step="any" value={editPettyForm.rate} onChange={e => setEditPettyForm(f => ({ ...f, rate: e.target.value }))} placeholder="0" style={inp} />
+                        </div>
+                      </div>
+                      <div>
+                        <label style={lbl}>Amount * (रू)</label>
+                        <input type="number" min="0" step="any" value={editPettyForm.amount} onChange={e => setEditPettyForm(f => ({ ...f, amount: e.target.value }))}
+                          placeholder="0.00" className="font-mono-numbers" style={{ ...inp, fontSize: 20, fontWeight: 700 }} required />
+                      </div>
+                      <div>
+                        <label style={lbl}>Date</label>
+                        <input type="date" value={editPettyForm.date} onChange={e => setEditPettyForm(f => ({ ...f, date: e.target.value }))} style={inp} required />
+                      </div>
+                      <div>
+                        <label style={lbl}>Note (optional)</label>
+                        <textarea value={editPettyForm.note} onChange={e => setEditPettyForm(f => ({ ...f, note: e.target.value }))}
+                          placeholder="Extra detail…" rows={3} style={{ ...inp, resize: 'vertical', minHeight: 72 }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                        <button type="submit" disabled={pettyEditSubmitting} style={{
+                          flex: 1, padding: '12px 0', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700,
+                          cursor: pettyEditSubmitting ? 'not-allowed' : 'pointer',
+                          background: pettyEditSubmitting ? '#222637' : '#F59E0B', color: pettyEditSubmitting ? '#475569' : '#111827',
+                        }}>
+                          {pettyEditSubmitting ? 'Saving…' : 'Save'}
+                        </button>
+                        <button type="button" onClick={() => setEditingPettyCashId(null)} style={{
+                          flex: 1, padding: '12px 0', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                          background: 'rgba(255,255,255,0.07)', color: '#94A3B8', border: '1px solid rgba(255,255,255,0.07)',
+                        }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               ))}
             </div>
@@ -704,9 +866,9 @@ function LogoutIcon() {
   )
 }
 
-function SmallPencilIcon() {
+function PencilIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
       <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
@@ -723,5 +885,13 @@ function TrashIcon() {
 
 const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 500, color: '#94A3B8', display: 'block', marginBottom: 6 }
 const inp: React.CSSProperties = { width: '100%', padding: '13px 14px', background: '#0F1117', color: '#F1F5F9', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 16, boxSizing: 'border-box', outline: 'none' }
+const pettyInlineEditForm: React.CSSProperties = {
+  borderTop: '3px solid #F59E0B',
+  background: '#0F1117',
+  padding: '14px 16px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+}
 const cardStyle: React.CSSProperties = { background: '#1A1D27', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }
 const divider: React.CSSProperties = { height: 1, background: 'rgba(255,255,255,0.05)', margin: '0 16px' }
