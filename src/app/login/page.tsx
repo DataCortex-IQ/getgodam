@@ -138,9 +138,34 @@ export default function LoginPage() {
         </form>
       </div>
 
-      <p style={{ marginTop: 32, fontSize: 12, color: '#374151', letterSpacing: '0.02em' }}>
-        Made with ❤️ from Nepal
-      </p>
+      <a
+        href="https://www.datacortex.in"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          marginTop: 40,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          textDecoration: 'none',
+          opacity: 0.35,
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
+          <rect x="13" y="3" width="8" height="8" rx="1.5" fill="#94A3B8" />
+          <rect x="3" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" />
+          <rect x="13" y="13" width="8" height="8" rx="1.5" fill="#94A3B8" opacity="0.4" />
+        </svg>
+        <span style={{
+          fontSize: 11,
+          color: '#94A3B8',
+          letterSpacing: '0.04em',
+          fontWeight: 500,
+        }}>
+          Powered by DataCortex
+        </span>
+      </a>
 
       <style>{`
         @keyframes shake {
