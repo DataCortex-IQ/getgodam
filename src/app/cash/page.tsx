@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { formatNPR } from '@/lib/format'
+import { computeCashBalance, isLegacyTransactionCashMirror } from '@/lib/cashBalance'
 import { toast } from 'sonner'
 import ConfirmDialog from '@/components/ConfirmDialog'
 
@@ -29,6 +30,38 @@ interface PettyCashRow {
   cash_entry_id: string
   created_at: string
 }
+
+interface CashTransactionRow {
+  id: string
+  type: 'sale' | 'purchase'
+  total_amount: number
+  date: string
+  created_at: string
+  note: string | null
+  ledgers: { name: string } | null
+  items: { name: string } | null
+}
+
+type UnifiedActivityRow =
+  | {
+    key: string
+    source: 'transaction'
+    displayType: 'income' | 'expense'
+    amount: number
+    note: string
+    date: string
+    sortTs: number
+  }
+  | {
+    key: string
+    source: 'manual'
+    cashEntryId: string
+    displayType: 'income' | 'expense'
+    amount: number
+    note: string
+    date: string
+    sortTs: number
+  }
 
 interface Cheque {
   id: string
@@ -88,16 +121,22 @@ export default function CashPage() {
   const [pettySubmitting, setPettySubmitting] = useState(false)
   const [pendingPettyDelete, setPendingPettyDelete] = useState<string | null>(null)
   const [deletingPetty, setDeletingPetty] = useState(false)
+  const [cashTxRows, setCashTxRows] = useState<CashTransactionRow[]>([])
 
   async function load() {
-    const [{ data: cashData }, { data: chequeData }, { data: pettyData }] = await Promise.all([
+    const [{ data: cashData }, { data: chequeData }, { data: pettyData }, { data: cashTxData }] = await Promise.all([
       supabase.from('cash_entries').select('*').order('created_at', { ascending: false }),
       supabase.from('cheques').select('*').order('due_date', { ascending: true }),
       supabase.from('petty_cash').select('*').order('created_at', { ascending: false }).limit(10),
+      supabase.from('transactions')
+        .select('id, type, total_amount, date, created_at, note, payment_method, ledgers(name), items(name)')
+        .eq('payment_method', 'cash')
+        .order('created_at', { ascending: false }),
     ])
     setEntries(cashData ?? [])
     setCheques(chequeData ?? [])
     setPettyRows((pettyData as PettyCashRow[]) ?? [])
+    setCashTxRows((cashTxData as unknown as CashTransactionRow[]) ?? [])
     setLoading(false)
   }
 
@@ -114,9 +153,7 @@ export default function CashPage() {
 
   const openingEntry = entries.find(e => e.type === 'opening')
   const opening = openingEntry?.amount ?? 0
-  const income = entries.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0)
-  const expense = entries.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
-  const balance = opening + income - expense
+  const balance = computeCashBalance(entries, cashTxRows)
 
   const pendingCheques = cheques.filter(c => c.status === 'pending')
   const pendingIncoming = pendingCheques.filter(c => c.direction === 'incoming').reduce((s, c) => s + c.amount, 0)
@@ -204,7 +241,30 @@ export default function CashPage() {
     return data.publicUrl
   }
 
-  const visibleEntries = entries.filter(e => e.type !== 'opening' && e.category !== 'petty_cash')
+  const unifiedActivity: UnifiedActivityRow[] = (() => {
+    const txRows: UnifiedActivityRow[] = cashTxRows.map(t => ({
+      key: `tx-${t.id}`,
+      source: 'transaction',
+      displayType: t.type === 'sale' ? 'income' : 'expense',
+      amount: t.total_amount,
+      note: `${t.type === 'sale' ? 'Sale' : 'Purchase'} — ${t.ledgers?.name ?? '—'}${t.items?.name ? ` · ${t.items.name}` : ''}`,
+      date: t.date,
+      sortTs: new Date(t.created_at).getTime(),
+    }))
+    const manualRows: UnifiedActivityRow[] = entries
+      .filter(e => e.type !== 'opening' && e.category !== 'petty_cash' && !isLegacyTransactionCashMirror(e))
+      .map(e => ({
+        key: `cash-${e.id}`,
+        source: 'manual',
+        cashEntryId: e.id,
+        displayType: e.type === 'income' ? 'income' : 'expense',
+        amount: e.amount,
+        note: e.note,
+        date: e.date,
+        sortTs: new Date(e.created_at).getTime(),
+      }))
+    return [...txRows, ...manualRows].sort((a, b) => b.sortTs - a.sortTs)
+  })()
 
   const qtyN = parseFloat(pettyForm.quantity) || 0
   const rateN = parseFloat(pettyForm.rate) || 0
@@ -551,9 +611,9 @@ export default function CashPage() {
           )}
         </div>
 
-        {/* Cash Entries list */}
+        {/* Activity — cash sales/purchases + manual entries */}
         <div>
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 10 }}>Cash Entries</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 10 }}>Activity</p>
           {loading ? (
             <div style={cardStyle}>
               {[1, 2, 3].map((i, idx) => (
@@ -566,30 +626,39 @@ export default function CashPage() {
                 </div>
               ))}
             </div>
-          ) : visibleEntries.length === 0 ? (
+          ) : unifiedActivity.length === 0 ? (
             <div style={{ ...cardStyle, padding: '32px 20px', textAlign: 'center' }}>
-              <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>No entries yet. Set your opening balance to get started.</p>
+              <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>No activity yet. Record a cash sale or add an entry.</p>
             </div>
           ) : (
             <div style={cardStyle}>
-              {visibleEntries.map((entry, idx) => {
-                const isIncome = entry.type === 'income'
+              {unifiedActivity.map((row, idx) => {
+                const isIncome = row.displayType === 'income'
                 return (
-                  <div key={entry.id}>
+                  <div key={row.key}>
                     {idx > 0 && <div style={divider} />}
                     <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: 10 }}>
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: isIncome ? '#10B981' : '#F59E0B', flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9', marginBottom: 2 }}>{entry.note}</p>
-                        <p style={{ fontSize: 11, color: '#475569' }}>{entry.date}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
+                          {row.source === 'transaction' && (
+                            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.2)', color: '#60A5FA' }}>TX</span>
+                          )}
+                          <p style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9' }}>{row.note}</p>
+                        </div>
+                        <p style={{ fontSize: 11, color: '#475569' }}>{row.date}</p>
                       </div>
                       <p className="font-mono-numbers" style={{ fontSize: 13, fontWeight: 700, color: isIncome ? '#10B981' : '#F59E0B', flexShrink: 0 }}>
-                        {isIncome ? '+' : '−'}{formatNPR(entry.amount)}
+                        {isIncome ? '+' : '−'}{formatNPR(row.amount)}
                       </p>
-                      <button onClick={() => setPendingDelete(entry.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#374151', padding: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
-                        <TrashIcon />
-                      </button>
+                      {row.source === 'manual' ? (
+                        <button type="button" onClick={() => setPendingDelete(row.cashEntryId)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#374151', padding: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
+                          <TrashIcon />
+                        </button>
+                      ) : (
+                        <div style={{ minWidth: 36, minHeight: 44, flexShrink: 0 }} aria-hidden />
+                      )}
                     </div>
                   </div>
                 )

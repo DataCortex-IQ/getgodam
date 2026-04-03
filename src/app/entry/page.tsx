@@ -122,14 +122,7 @@ export default function EntryPage() {
       const partyName = selectedParty?.name ?? 'Unknown'
       const itemName = selectedItem?.name ?? 'Unknown'
 
-      // Handle cash auto-entry
-      if (paymentMethod === 'cash') {
-        const cashNote = `${txType === 'sale' ? 'Sale to' : 'Purchase from'} ${partyName} — ${itemName}`
-        await supabase.from('cash_entries').insert({
-          type: txType === 'sale' ? 'income' : 'expense',
-          amount: total_amount, note: cashNote, date: form.date,
-        })
-      }
+      // Cash sales/purchases: balance is derived live from transactions (payment_method = 'cash') — no cash_entries row (avoids double count).
 
       // Handle cheque creation
       if (paymentMethod === 'cheque') {

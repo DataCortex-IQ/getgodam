@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { formatNPR } from '@/lib/format'
 import { getInventory } from '@/lib/inventory'
+import { computeCashBalance } from '@/lib/cashBalance'
 import StockBadge from '@/components/StockBadge'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { toast } from 'sonner'
@@ -56,22 +57,20 @@ export default function DashboardPage() {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
 
-      const [{ data: txData }, inv, { data: cashData }, { data: chequeData }, { data: pettyMonth }] = await Promise.all([
+      const [{ data: txData }, inv, { data: cashData }, { data: cashTxBal }, { data: chequeData }, { data: pettyMonth }] = await Promise.all([
         supabase.from('transactions')
           .select(`id, type, quantity, rate, vat_pct, total_amount, date, invoice_no, note, ledger_id, item_id, payment_method, ledgers (name), items (name)`)
           .order('created_at', { ascending: false }),
         getInventory(),
-        supabase.from('cash_entries').select('type, amount'),
+        supabase.from('cash_entries').select('type, amount, note'),
+        supabase.from('transactions').select('type, total_amount').eq('payment_method', 'cash'),
         supabase.from('cheques').select('due_date').eq('status', 'pending').lte('due_date', tomorrow),
         supabase.from('petty_cash').select('amount').gte('date', monthStart).lte('date', monthEnd),
       ])
       setTransactions((txData as unknown as Transaction[]) ?? [])
       setInventory(inv)
-      if (cashData) {
-        const opening = cashData.filter(e => e.type === 'opening').reduce((s, e) => s + e.amount, 0)
-        const income = cashData.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0)
-        const expense = cashData.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
-        setCashBalance(opening + income - expense)
+      if (cashData && cashTxBal) {
+        setCashBalance(computeCashBalance(cashData, cashTxBal))
       }
       if (chequeData) {
         setUrgentCheques({
