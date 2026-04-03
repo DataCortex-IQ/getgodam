@@ -1,18 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifySessionToken, COOKIE_NAME } from '@/lib/auth'
 
 const PROTECTED = ['/dashboard', '/entry', '/godown', '/ledger']
+const PUBLIC = ['/login', '/api/auth']
 
-export function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl
+export async function proxy(req: NextRequest) {
+  const path = req.nextUrl.pathname
 
-  const isProtected = PROTECTED.some(p => pathname.startsWith(p))
-  if (!isProtected) return NextResponse.next()
+  if (PUBLIC.some(p => path.startsWith(p))) {
+    return NextResponse.next()
+  }
 
-  const session = req.cookies.get('godam_session')?.value
-  if (!session) {
-    const loginUrl = req.nextUrl.clone()
-    loginUrl.pathname = '/login'
-    return NextResponse.redirect(loginUrl)
+  if (!PROTECTED.some(p => path.startsWith(p))) {
+    return NextResponse.next()
+  }
+
+  const token = req.cookies.get(COOKIE_NAME)?.value
+
+  if (!token) {
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  const valid = await verifySessionToken(token)
+  if (!valid) {
+    const res = NextResponse.redirect(new URL('/login', req.url))
+    res.cookies.set(COOKIE_NAME, '', { maxAge: 0, path: '/' })
+    return res
   }
 
   return NextResponse.next()

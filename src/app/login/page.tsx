@@ -138,8 +138,8 @@ export default function LoginPage() {
         </form>
       </div>
 
-      <p style={{ marginTop: 32, fontSize: 11, color: '#1E293B', letterSpacing: '0.05em' }}>
-        GODAM · DATACORTEX IQ · SILIGURI
+      <p style={{ marginTop: 32, fontSize: 12, color: '#374151', letterSpacing: '0.02em' }}>
+        Made with ❤️ from Nepal
       </p>
 
       <style>{`

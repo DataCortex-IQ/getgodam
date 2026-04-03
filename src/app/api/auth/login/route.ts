@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { randomUUID } from 'crypto'
-import { validTokens } from '@/lib/tokens'
+import { createSessionToken, COOKIE_NAME, COOKIE_MAX_AGE } from '@/lib/auth'
 
 export async function POST(req: NextRequest) {
-  const { password } = await req.json()
-  const expected = process.env.GODAM_PASSWORD
+  try {
+    const { password } = await req.json()
+    const correct = process.env.GODAM_PASSWORD
 
-  if (!expected || password !== expected) {
-    return NextResponse.json({ error: 'Incorrect password' }, { status: 401 })
+    if (!correct || password !== correct) {
+      return NextResponse.json({ error: 'Invalid password' }, { status: 401 })
+    }
+
+    const token = await createSessionToken()
+    const res = NextResponse.json({ ok: true })
+    res.cookies.set(COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+    })
+    return res
+  } catch {
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
-
-  const token = randomUUID()
-  validTokens.add(token)
-
-  const res = NextResponse.json({ ok: true })
-  res.cookies.set('godam_session', token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-  })
-  return res
 }
