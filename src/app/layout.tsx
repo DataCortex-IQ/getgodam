@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { DM_Sans, DM_Mono } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
 import BottomNav from '@/components/BottomNav'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
@@ -67,6 +68,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <BottomNav />
         </div>
         <Toaster position="top-center" theme="dark" />
+        <Analytics />
       </body>
     </html>
   )
