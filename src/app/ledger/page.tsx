@@ -7,6 +7,14 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 
 interface Ledger { id: string; name: string; vat_no: string | null; pan_no: string | null; type: 'supplier' | 'customer' | 'both' }
 interface Item { id: string; name: string; default_unit: string }
+
+interface ItemCost {
+  id: string
+  item_id: string
+  label: string
+  amount: number
+  sort_order: number
+}
 type EditPartyForm = { name: string; vat_no: string; pan_no: string; type: Ledger['type'] }
 type EditItemForm = { name: string; default_unit: string }
 
@@ -44,6 +52,11 @@ export default function LedgerPage() {
   const [pendingDeleteParty, setPendingDeleteParty] = useState<Ledger | null>(null)
   const [pendingDeleteItem, setPendingDeleteItem] = useState<Item | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  const [openCostSheetId, setOpenCostSheetId] = useState<string | null>(null)
+  const [costRows, setCostRows] = useState<Record<string, ItemCost[]>>({})
+  const [newCostLabel, setNewCostLabel] = useState('')
+  const [newCostAmount, setNewCostAmount] = useState('')
 
   async function loadData() {
     const [{ data: l }, { data: i }] = await Promise.all([
@@ -129,14 +142,82 @@ export default function LedgerPage() {
 
   async function handleDeleteItem() {
     if (!pendingDeleteItem) return
+    const deletedId = pendingDeleteItem.id
     setDeleting(true)
     try {
-      const { error } = await supabase.from('items').delete().eq('id', pendingDeleteItem.id)
+      const { error } = await supabase.from('items').delete().eq('id', deletedId)
       if (error) { if (error.code === '23503') toast.error('Cannot delete — item has existing transactions.'); else throw error }
       else { toast.success('Item deleted.'); await loadData() }
       setPendingDeleteItem(null)
+      if (openCostSheetId === deletedId) setOpenCostSheetId(null)
     } catch { toast.error('Failed to delete.') }
     finally { setDeleting(false) }
+  }
+
+  async function loadCostSheet(itemId: string) {
+    const { data, error } = await supabase
+      .from('item_costs')
+      .select('id, item_id, label, amount, sort_order')
+      .eq('item_id', itemId)
+      .order('sort_order', { ascending: true })
+    if (error) {
+      console.error(error)
+      toast.error('Could not load cost sheet.')
+      return
+    }
+    const rows: ItemCost[] = (data ?? []).map(r => ({
+      id: r.id as string,
+      item_id: r.item_id as string,
+      label: r.label as string,
+      amount: Number(r.amount),
+      sort_order: Number(r.sort_order ?? 0),
+    }))
+    setCostRows(prev => ({ ...prev, [itemId]: rows }))
+  }
+
+  async function addCostRow(itemId: string) {
+    const label = newCostLabel.trim()
+    const amt = parseFloat(newCostAmount)
+    if (!label || Number.isNaN(amt) || amt < 0) {
+      toast.error('Enter a label and valid amount.')
+      return
+    }
+    const nextOrder = costRows[itemId]?.length ?? 0
+    const { error } = await supabase.from('item_costs').insert({
+      item_id: itemId,
+      label,
+      amount: amt,
+      sort_order: nextOrder,
+    })
+    if (error) {
+      console.error(error)
+      toast.error('Failed to add.')
+      return
+    }
+    setNewCostLabel('')
+    setNewCostAmount('')
+    await loadCostSheet(itemId)
+  }
+
+  async function deleteCostRow(costId: string, itemId: string) {
+    const { error } = await supabase.from('item_costs').delete().eq('id', costId)
+    if (error) {
+      console.error(error)
+      toast.error('Failed to remove.')
+      return
+    }
+    await loadCostSheet(itemId)
+  }
+
+  function toggleCostSheet(itemId: string) {
+    if (openCostSheetId === itemId) {
+      setOpenCostSheetId(null)
+    } else {
+      setNewCostLabel('')
+      setNewCostAmount('')
+      setOpenCostSheetId(itemId)
+      void loadCostSheet(itemId)
+    }
   }
 
   return (
@@ -261,18 +342,152 @@ export default function LedgerPage() {
                 border: editingItemId === item.id ? '1px solid rgba(245,158,11,0.4)' : '1px solid rgba(255,255,255,0.07)',
                 overflow: 'hidden', transition: 'border-color 0.15s',
               }}>
-                <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#10B981', flexShrink: 0 }}>
+                <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#10B981', flexShrink: 0, marginTop: 2 }}>
                     {item.name[0].toUpperCase()}
                   </div>
-                  <p style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#F1F5F9' }}>{item.name}</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: '#F1F5F9', marginBottom: 4 }}>{item.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => toggleCostSheet(item.id)}
+                      style={{
+                        background: 'none', border: 'none',
+                        color: openCostSheetId === item.id ? '#F59E0B' : '#475569',
+                        fontSize: 11, fontWeight: 600,
+                        cursor: 'pointer', padding: '4px 0',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}
+                    >
+                      <CostSheetIcon />
+                      Cost sheet
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <span style={{ background: 'rgba(255,255,255,0.07)', color: '#94A3B8', fontSize: 11, fontWeight: 700, borderRadius: 8, padding: '3px 8px' }}>{item.default_unit}</span>
                     <button onClick={() => editingItemId === item.id ? setEditingItemId(null) : (setEditingItemId(item.id), setEditItemForm({ name: item.name, default_unit: item.default_unit }))}
                       style={{ ...iconBtn, color: editingItemId === item.id ? '#F59E0B' : '#475569' }}><PencilIcon /></button>
                     <button onClick={() => setPendingDeleteItem(item)} style={{ ...iconBtn, color: '#374151' }}><TrashIcon /></button>
                   </div>
                 </div>
+                {openCostSheetId === item.id && (
+                  <div style={{
+                    borderTop: '3px solid #F59E0B',
+                    background: '#0F1117',
+                    padding: '16px',
+                  }}>
+                    <p style={{
+                      fontSize: 12, color: '#475569',
+                      marginBottom: 12, fontWeight: 500,
+                    }}>
+                      Cost breakdown per {item.default_unit}
+                    </p>
+
+                    {(costRows[item.id] ?? []).map(cost => (
+                      <div key={cost.id} style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '8px 0',
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      }}>
+                        <span style={{ fontSize: 13, color: '#94A3B8' }}>{cost.label}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="font-mono-numbers" style={{
+                            fontSize: 13, color: '#F1F5F9', fontWeight: 600,
+                          }}>
+                            रू {cost.amount.toFixed(2)}
+                          </span>
+                          <button type="button" onClick={() => void deleteCostRow(cost.id, item.id)}
+                            style={{
+                              color: '#F43F5E', background: 'none', border: 'none',
+                              cursor: 'pointer', fontSize: 16, padding: '4px', lineHeight: 1,
+                            }}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {(costRows[item.id] ?? []).length > 0 && (
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 0 8px',
+                        borderTop: '1px solid rgba(245,158,11,0.3)',
+                        marginTop: 4,
+                      }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: '#F1F5F9' }}>
+                          Landed cost
+                        </span>
+                        <span className="font-mono-numbers" style={{
+                          fontSize: 18, fontWeight: 700, color: '#F59E0B',
+                        }}>
+                          रू {(costRows[item.id] ?? []).reduce((s, c) => s + c.amount, 0).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ fontSize: 11, color: '#475569', marginBottom: 8 }}>
+                        Add cost component
+                      </p>
+
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                        {(['Ex factory', 'Bhada', 'Load/unload', 'VAT', 'Delivery', 'Other'] as const).map(chip => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => setNewCostLabel(chip)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 20,
+                              border: '1px solid rgba(245,158,11,0.3)',
+                              background: newCostLabel === chip
+                                ? 'rgba(245,158,11,0.2)' : 'transparent',
+                              color: newCostLabel === chip ? '#F59E0B' : '#475569',
+                              fontSize: 11, cursor: 'pointer', fontWeight: 500,
+                            }}
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <input
+                          placeholder="Label (e.g. Bhada)"
+                          value={newCostLabel}
+                          onChange={e => setNewCostLabel(e.target.value)}
+                          style={inp}
+                        />
+                        <input
+                          type="number"
+                          placeholder="Amount"
+                          value={newCostAmount}
+                          onChange={e => setNewCostAmount(e.target.value)}
+                          className="font-mono-numbers"
+                          style={{ ...inp, fontFamily: 'var(--font-dm-mono)' }}
+                          step="0.01"
+                          min="0"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void addCostRow(item.id)}
+                        style={{
+                          width: '100%', marginTop: 8,
+                          padding: '10px 0',
+                          background: '#F59E0B', color: '#111827',
+                          border: 'none', borderRadius: 10,
+                          fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        + Add component
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {editingItemId === item.id && (
                   <form onSubmit={handleSaveItem} style={inlineForm}>
                     <input placeholder="Item name *" value={editItemForm.name} onChange={e => setEditItemForm(f => ({ ...f, name: e.target.value }))} style={inp} required autoFocus />
@@ -317,6 +532,16 @@ function LogoutIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
+function CostSheetIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   )
 }

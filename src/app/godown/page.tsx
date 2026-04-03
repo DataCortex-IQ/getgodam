@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getInventory } from '@/lib/inventory'
 import { formatNPR } from '@/lib/format'
+import { supabase } from '@/lib/supabase'
 import StockBadge from '@/components/StockBadge'
 
 interface InventoryItem {
@@ -14,10 +15,44 @@ interface InventoryItem {
 export default function GodownPage() {
   const router = useRouter()
   const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [landedCosts, setLandedCosts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getInventory().then(setInventory).catch(console.error).finally(() => setLoading(false))
+    let cancelled = false
+    ;(async () => {
+      try {
+        const inv = await getInventory()
+        if (cancelled) return
+        setInventory(inv)
+        const itemIds = inv.map(i => i.item_id).filter(Boolean)
+        if (itemIds.length === 0) {
+          setLandedCosts({})
+          return
+        }
+        const { data: costs, error } = await supabase
+          .from('item_costs')
+          .select('item_id, amount')
+          .in('item_id', itemIds)
+        if (error) {
+          console.error(error)
+          setLandedCosts({})
+          return
+        }
+        if (cancelled) return
+        const map: Record<string, number> = {}
+        for (const c of costs ?? []) {
+          const id = c.item_id as string
+          map[id] = (map[id] ?? 0) + Number(c.amount)
+        }
+        setLandedCosts(map)
+      } catch (e) {
+        console.error(e)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   const sorted = [...inventory].sort((a, b) => {
@@ -117,6 +152,32 @@ export default function GodownPage() {
                   <p className="font-mono-numbers" style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8' }}>{formatNPR(item.avg_rate)}/{item.unit}</p>
                 </div>
               </div>
+              {(() => {
+                const landed = landedCosts[item.item_id]
+                if (landed == null || landed <= 0) return null
+                const margin = item.avg_rate - landed
+                const pct = item.avg_rate > 0 ? (margin / item.avg_rate) * 100 : 0
+                return (
+                  <div style={{ padding: '0 16px 14px' }}>
+                    <p style={{ fontSize: 11, color: '#475569' }}>
+                      Landed cost:
+                      <span className="font-mono-numbers" style={{ color: '#94A3B8', marginLeft: 4 }}>
+                        रू {landed.toFixed(2)}/{item.unit}
+                      </span>
+                    </p>
+                    {item.avg_rate > 0 && (
+                      <p style={{
+                        fontSize: 12, fontWeight: 600, marginTop: 4,
+                        color: item.avg_rate >= landed ? '#10B981' : '#F43F5E',
+                      }}>
+                        {item.avg_rate >= landed
+                          ? `Margin: रू ${margin.toFixed(2)}/${item.unit} (${pct.toFixed(0)}%)`
+                          : 'Selling below cost!'}
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           ))
         )}
