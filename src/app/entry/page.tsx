@@ -8,12 +8,8 @@ interface Ledger { id: string; name: string; type: string }
 interface Item { id: string; name: string; default_unit: string }
 
 const defaultForm = {
-  ledger_id: '',
-  item_id: '',
-  qty: '',
-  rate: '',
-  vat_pct: '13',
-  invoice_no: '',
+  ledger_id: '', item_id: '', qty: '', rate: '',
+  vat_pct: '13', invoice_no: '',
   date: new Date().toISOString().split('T')[0],
 }
 
@@ -27,12 +23,12 @@ export default function EntryPage() {
 
   useEffect(() => {
     async function load() {
-      const [{ data: ledgerData }, { data: itemData }] = await Promise.all([
+      const [{ data: l }, { data: i }] = await Promise.all([
         supabase.from('ledgers').select('id, name, type').order('name'),
         supabase.from('items').select('id, name, default_unit').order('name'),
       ])
-      setLedgers(ledgerData ?? [])
-      setItems(itemData ?? [])
+      setLedgers(l ?? [])
+      setItems(i ?? [])
     }
     load()
   }, [])
@@ -52,14 +48,11 @@ export default function EntryPage() {
     const qty = parseFloat(form.qty)
     const rate = parseFloat(form.rate)
     const vatPct = parseFloat(form.vat_pct)
-
-    if (!form.ledger_id || !form.item_id) { toast.error('Please select a party and an item.'); return }
-    if (!qty || qty <= 0 || !rate || rate <= 0) { toast.error('Quantity and rate must be greater than 0.'); return }
-
+    if (!form.ledger_id || !form.item_id) { toast.error('Select a party and item.'); return }
+    if (!qty || qty <= 0 || !rate || rate <= 0) { toast.error('Qty and rate must be > 0.'); return }
     const taxable_amount = qty * rate
     const vat_amount = taxable_amount * (vatPct / 100)
     const total_amount = taxable_amount + vat_amount
-
     setSubmitting(true)
     try {
       const { error } = await supabase.from('transactions').insert({
@@ -72,11 +65,8 @@ export default function EntryPage() {
       toast.success(`${txType === 'purchase' ? 'Purchase' : 'Sale'} recorded!`)
       setForm({ ...defaultForm, date: new Date().toISOString().split('T')[0] })
       setUnit('')
-    } catch {
-      toast.error('Failed to save. Please try again.')
-    } finally {
-      setSubmitting(false)
-    }
+    } catch { toast.error('Failed to save.') }
+    finally { setSubmitting(false) }
   }
 
   const qty = parseFloat(form.qty) || 0
@@ -84,142 +74,128 @@ export default function EntryPage() {
   const vatPct = parseFloat(form.vat_pct) || 0
 
   return (
-    <div style={{ background: '#0F1117', minHeight: '100vh' }}>
-      {/* Header */}
-      <div style={{ padding: '56px 20px 20px', background: '#0F1117' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#F1F5F9', marginBottom: 4 }}>New Entry</h1>
-        <p style={{ fontSize: 13, color: '#475569' }}>Record a purchase or sale</p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+
+      {/* FIXED HEADER — title + toggle */}
+      <div style={{
+        flexShrink: 0, background: '#0F1117',
+        paddingTop: 'env(safe-area-inset-top)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        zIndex: 10,
+      }}>
+        <div style={{ padding: '14px 20px 14px' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F1F5F9', marginBottom: 12 }}>New Entry</h1>
+          {/* Purchase / Sale toggle — always visible */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <button
+              onClick={() => { setTxType('purchase'); setForm(f => ({ ...f, ledger_id: '' })) }}
+              style={{
+                padding: '11px 0', borderRadius: 10,
+                fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                background: txType === 'purchase' ? '#F59E0B' : '#1A1D27',
+                color: txType === 'purchase' ? '#111827' : '#475569',
+                border: txType === 'purchase' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                transition: 'all 0.15s',
+              }}
+            >
+              ↓ Purchase
+            </button>
+            <button
+              onClick={() => { setTxType('sale'); setForm(f => ({ ...f, ledger_id: '' })) }}
+              style={{
+                padding: '11px 0', borderRadius: 10,
+                fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                background: txType === 'sale' ? '#10B981' : '#1A1D27',
+                color: txType === 'sale' ? '#FFFFFF' : '#475569',
+                border: txType === 'sale' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                transition: 'all 0.15s',
+              }}
+            >
+              ↑ Sale
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div style={{ padding: '0 16px' }}>
-        {/* Purchase / Sale toggle */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
-          <button
-            onClick={() => { setTxType('purchase'); setForm(f => ({ ...f, ledger_id: '' })) }}
-            style={{
-              padding: '14px 0', borderRadius: 12,
-              fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              background: txType === 'purchase' ? '#F59E0B' : '#1A1D27',
-              color: txType === 'purchase' ? '#111827' : '#475569',
-              border: txType === 'purchase' ? 'none' : '1px solid rgba(255,255,255,0.07)',
-              transition: 'all 0.15s',
-            }}
-          >
-            ↓ Purchase
-          </button>
-          <button
-            onClick={() => { setTxType('sale'); setForm(f => ({ ...f, ledger_id: '' })) }}
-            style={{
-              padding: '14px 0', borderRadius: 12,
-              fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              background: txType === 'sale' ? '#10B981' : '#1A1D27',
-              color: txType === 'sale' ? '#FFFFFF' : '#475569',
-              border: txType === 'sale' ? 'none' : '1px solid rgba(255,255,255,0.07)',
-              transition: 'all 0.15s',
-            }}
-          >
-            ↑ Sale
-          </button>
-        </div>
+      {/* SCROLLABLE FORM */}
+      <div style={{
+        flex: 1, overflowY: 'auto', overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
+        overscrollBehavior: 'contain',
+        padding: '16px 16px 24px',
+      }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* Party */}
           <div>
-            <label style={labelStyle}>{txType === 'purchase' ? 'Supplier' : 'Customer'}</label>
-            <select value={form.ledger_id} onChange={e => setForm(f => ({ ...f, ledger_id: e.target.value }))} style={selectStyle} required>
+            <label style={lbl}>{txType === 'purchase' ? 'Supplier' : 'Customer'}</label>
+            <select value={form.ledger_id} onChange={e => setForm(f => ({ ...f, ledger_id: e.target.value }))} style={sel} required>
               <option value="">Select party…</option>
-              {filteredLedgers.map(l => (
-                <option key={l.id} value={l.id}>{l.name} ({l.type})</option>
-              ))}
+              {filteredLedgers.map(l => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
             </select>
           </div>
 
-          {/* Item */}
           <div>
-            <label style={labelStyle}>Item</label>
-            <select value={form.item_id} onChange={e => handleItemChange(e.target.value)} style={selectStyle} required>
+            <label style={lbl}>Item</label>
+            <select value={form.item_id} onChange={e => handleItemChange(e.target.value)} style={sel} required>
               <option value="">Select item…</option>
-              {items.map(i => (
-                <option key={i.id} value={i.id}>{i.name} ({i.default_unit})</option>
-              ))}
+              {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.default_unit})</option>)}
             </select>
           </div>
 
-          {/* Qty + Unit */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
             <div>
-              <label style={labelStyle}>Quantity</label>
+              <label style={lbl}>Quantity</label>
               <input type="number" min="0" step="any" value={form.qty}
                 onChange={e => setForm(f => ({ ...f, qty: e.target.value }))}
-                placeholder="0" style={inputStyle} required />
+                placeholder="0" style={inp} required />
             </div>
             <div>
-              <label style={labelStyle}>Unit</label>
-              <div style={{
-                ...inputStyle, background: '#1A1D27',
-                color: unit ? '#F1F5F9' : '#475569',
-                minWidth: 60, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: 13,
-              }}>
+              <label style={lbl}>Unit</label>
+              <div style={{ ...inp, background: '#1A1D27', color: unit ? '#F1F5F9' : '#475569', minWidth: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>
                 {unit || '—'}
               </div>
             </div>
           </div>
 
-          {/* Rate */}
           <div>
-            <label style={labelStyle}>Rate (रू per unit)</label>
+            <label style={lbl}>Rate (रू per unit)</label>
             <input type="number" min="0" step="any" value={form.rate}
               onChange={e => setForm(f => ({ ...f, rate: e.target.value }))}
-              placeholder="0.00" style={inputStyle} required />
+              placeholder="0.00" style={inp} required />
           </div>
 
-          {/* VAT */}
           <div>
-            <label style={labelStyle}>VAT %</label>
+            <label style={lbl}>VAT %</label>
             <input type="number" min="0" max="100" step="any" value={form.vat_pct}
-              onChange={e => setForm(f => ({ ...f, vat_pct: e.target.value }))}
-              style={inputStyle} />
+              onChange={e => setForm(f => ({ ...f, vat_pct: e.target.value }))} style={inp} />
           </div>
 
-          {/* Date */}
           <div>
-            <label style={labelStyle}>Date</label>
+            <label style={lbl}>Date</label>
             <input type="date" value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              style={inputStyle} required />
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inp} required />
           </div>
 
-          {/* Invoice No */}
           <div>
-            <label style={labelStyle}>Invoice No (optional)</label>
+            <label style={lbl}>Invoice No (optional)</label>
             <input type="text" value={form.invoice_no}
               onChange={e => setForm(f => ({ ...f, invoice_no: e.target.value }))}
-              placeholder="e.g. INV-001" style={inputStyle} />
+              placeholder="e.g. INV-001" style={inp} />
           </div>
 
-          {/* Live Calc */}
           {qty > 0 && rate > 0 && (
             <div className="fade-in">
               <LiveCalc qty={qty} rate={rate} vatPct={vatPct} />
             </div>
           )}
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={submitting}
-            style={{
-              width: '100%', height: 56, borderRadius: 12, border: 'none',
-              fontSize: 15, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
-              background: submitting ? '#222637' : txType === 'purchase' ? '#F59E0B' : '#10B981',
-              color: submitting ? '#475569' : txType === 'purchase' ? '#111827' : '#FFFFFF',
-              opacity: submitting ? 0.8 : 1,
-              transition: 'all 0.15s',
-              marginTop: 4, marginBottom: 8,
-            }}
-          >
+          <button type="submit" disabled={submitting} style={{
+            width: '100%', height: 52, borderRadius: 12, border: 'none',
+            fontSize: 15, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
+            background: submitting ? '#222637' : txType === 'purchase' ? '#F59E0B' : '#10B981',
+            color: submitting ? '#475569' : txType === 'purchase' ? '#111827' : '#FFFFFF',
+            opacity: submitting ? 0.8 : 1, transition: 'all 0.15s',
+          }}>
             {submitting ? 'Saving…' : `Save ${txType === 'purchase' ? 'Purchase' : 'Sale'}`}
           </button>
         </form>
@@ -228,24 +204,6 @@ export default function EntryPage() {
   )
 }
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 500, color: '#94A3B8',
-  display: 'block', marginBottom: 6,
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '13px 14px',
-  background: '#0F1117', color: '#F1F5F9',
-  border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: 12, fontSize: 15,
-  boxSizing: 'border-box', outline: 'none',
-}
-
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  appearance: 'none',
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23475569' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
-  backgroundRepeat: 'no-repeat',
-  backgroundPosition: 'right 14px center',
-  paddingRight: 36,
-}
+const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 500, color: '#94A3B8', display: 'block', marginBottom: 6 }
+const inp: React.CSSProperties = { width: '100%', padding: '13px 14px', background: '#0F1117', color: '#F1F5F9', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 16, boxSizing: 'border-box', outline: 'none' }
+const sel: React.CSSProperties = { ...inp, appearance: 'none', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23475569' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 14px center', paddingRight: 36 }

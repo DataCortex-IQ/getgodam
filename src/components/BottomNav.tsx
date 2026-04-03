@@ -66,13 +66,12 @@ export default function BottomNav() {
 
   return (
     <nav style={{
-      position: 'fixed', bottom: 0,
-      left: '50%', transform: 'translateX(-50%)',
-      width: '100%', maxWidth: 480,
       background: '#1A1D27',
       borderTop: '1px solid rgba(255,255,255,0.07)',
-      display: 'flex', zIndex: 50,
+      display: 'flex',
+      flexShrink: 0,
       paddingBottom: 'env(safe-area-inset-bottom)',
+      zIndex: 50,
     }}>
       {tabs.map(tab => {
         const active = path.startsWith(tab.href)
@@ -88,8 +87,9 @@ export default function BottomNav() {
             fontSize: 10,
             fontWeight: active ? 600 : 400,
             gap: 4,
-            minHeight: 60,
+            minHeight: 56,
             transition: 'color 0.15s',
+            WebkitTapHighlightColor: 'transparent',
           }}>
             {tab.icon(active)}
             <span>{tab.label}</span>

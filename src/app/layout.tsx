@@ -25,12 +25,21 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   other: {
     'theme-color': '#0F1117',
-  }
+    'apple-mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-status-bar-style': 'black-translucent',
+    'apple-mobile-web-app-title': 'Godam',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+        />
+      </head>
       <body
         className={`${dmSans.variable} ${dmMono.variable}`}
         style={{
@@ -38,18 +47,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           margin: 0,
           fontFamily: 'var(--font-dm-sans), DM Sans, sans-serif',
           WebkitFontSmoothing: 'antialiased',
+          overscrollBehavior: 'none',
+          height: '100dvh',
+          overflow: 'hidden',
+          position: 'fixed',
+          width: '100%',
         }}
       >
-        <main style={{
+        <div style={{
           maxWidth: 480,
           margin: '0 auto',
-          minHeight: '100vh',
-          paddingBottom: 80,
-          background: '#0F1117',
+          height: '100dvh',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative',
+          overflow: 'hidden',
         }}>
           {children}
-        </main>
-        <BottomNav />
+          <BottomNav />
+        </div>
         <Toaster position="top-center" theme="dark" />
       </body>
     </html>
