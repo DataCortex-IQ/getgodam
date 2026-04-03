@@ -1,16 +1,25 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import LiveCalc from '@/components/LiveCalc'
+import LiveCalc, { type LiveCalcLine } from '@/components/LiveCalc'
 import { toast } from 'sonner'
 
 interface Ledger { id: string; name: string; type: string }
 interface Item { id: string; name: string; default_unit: string }
 type PaymentMethod = 'cash' | 'cheque' | 'credit'
 
+type ItemRow = { key: string; item_id: string; qty: string; rate: string; unit: string }
+
+function newItemRow(): ItemRow {
+  return {
+    key: globalThis.crypto?.randomUUID?.() ?? `k-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    item_id: '', qty: '', rate: '', unit: '',
+  }
+}
+
 const defaultForm = {
-  ledger_id: '', item_id: '', qty: '', rate: '',
+  ledger_id: '',
   vat_pct: '13', invoice_no: '', note: '',
   date: new Date().toISOString().split('T')[0],
   cheque_number: '', bank_name: '', cheque_due_date: new Date().toISOString().split('T')[0],
@@ -22,7 +31,7 @@ export default function EntryPage() {
   const [ledgers, setLedgers] = useState<Ledger[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [form, setForm] = useState(defaultForm)
-  const [unit, setUnit] = useState('')
+  const [itemRows, setItemRows] = useState<ItemRow[]>(() => [newItemRow()])
   const [submitting, setSubmitting] = useState(false)
   const [editTxId, setEditTxId] = useState<string | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
@@ -47,13 +56,19 @@ export default function EntryPage() {
           setTxType(tx.type)
           setPaymentMethod(tx.payment_method ?? 'cash')
           setForm({
-            ledger_id: tx.ledger_id, item_id: tx.item_id,
-            qty: tx.qty, rate: tx.rate, vat_pct: tx.vat_pct,
-            invoice_no: tx.invoice_no, note: tx.note ?? '', date: tx.date,
+            ledger_id: tx.ledger_id,
+            vat_pct: tx.vat_pct,
+            invoice_no: tx.invoice_no ?? '', note: tx.note ?? '', date: tx.date,
             cheque_number: '', bank_name: '', cheque_due_date: new Date().toISOString().split('T')[0],
           })
           const foundItem = (i ?? []).find((item: Item) => item.id === tx.item_id)
-          if (foundItem) setUnit(foundItem.default_unit)
+          setItemRows([{
+            ...newItemRow(),
+            item_id: tx.item_id,
+            qty: tx.qty,
+            rate: tx.rate,
+            unit: foundItem?.default_unit ?? '',
+          }])
         } catch { localStorage.removeItem('godam_edit_tx') }
       }
     }
@@ -65,15 +80,8 @@ export default function EntryPage() {
   )
 
   const selectedParty = ledgers.find(l => l.id === form.ledger_id)
-  const selectedItem = items.find(i => i.id === form.item_id)
 
-  function handleItemChange(itemId: string) {
-    const item = items.find(i => i.id === itemId)
-    setForm(f => ({ ...f, item_id: itemId }))
-    setUnit(item?.default_unit ?? '')
-  }
-
-  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePhotoUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploadingPhoto(true)
@@ -87,65 +95,99 @@ export default function EntryPage() {
     finally { setUploadingPhoto(false) }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const qty = parseFloat(form.qty)
-    const rate = parseFloat(form.rate)
-    const vatPct = parseFloat(form.vat_pct)
-    if (!form.ledger_id || !form.item_id) { toast.error('Select a party and item.'); return }
-    if (!qty || qty <= 0 || !rate || rate <= 0) { toast.error('Qty and rate must be > 0.'); return }
+    if (!form.ledger_id) { toast.error('Select a party.'); return }
+    const vatPctNum = parseFloat(form.vat_pct) || 0
+
+    for (const row of itemRows) {
+      if (!row.item_id) { toast.error('Select an item for each line.'); return }
+      const q = parseFloat(row.qty)
+      const r = parseFloat(row.rate)
+      if (!q || q <= 0 || !r || r <= 0) { toast.error('Qty and rate required for each item.'); return }
+    }
     if (paymentMethod === 'cheque' && !form.cheque_due_date) { toast.error('Enter cheque due date.'); return }
 
-    const taxable_amount = qty * rate
-    const vat_amount = taxable_amount * (vatPct / 100)
-    const total_amount = taxable_amount + vat_amount
-    setSubmitting(true)
+    let grandTotal = 0
+    const lineTotals: { taxable: number; vat: number; total: number }[] = []
+    for (const row of itemRows) {
+      const qty = parseFloat(row.qty)
+      const rate = parseFloat(row.rate)
+      const taxable_amount = qty * rate
+      const vat_amount = taxable_amount * vatPctNum / 100
+      const total_amount = taxable_amount + vat_amount
+      lineTotals.push({ taxable: taxable_amount, vat: vat_amount, total: total_amount })
+      grandTotal += total_amount
+    }
 
+    setSubmitting(true)
     try {
       if (editTxId) {
         const { error: delErr } = await supabase.from('transactions').delete().eq('id', editTxId)
         if (delErr) throw delErr
       }
 
-      // Insert transaction
-      const { data: txData, error: txErr } = await supabase.from('transactions').insert({
-        type: txType, ledger_id: form.ledger_id, item_id: form.item_id,
-        quantity: qty, unit, rate, vat_pct: vatPct,
-        taxable_amount, vat_amount, total_amount,
-        invoice_no: form.invoice_no || null,
-        note: form.note || null,
-        date: form.date,
-        payment_method: paymentMethod,
-      }).select().single()
-      if (txErr) throw txErr
-
       const partyName = selectedParty?.name ?? 'Unknown'
-      const itemName = selectedItem?.name ?? 'Unknown'
+      const insertedIds: string[] = []
 
-      // Cash sales/purchases: balance is derived live from transactions (payment_method = 'cash') — no cash_entries row (avoids double count).
+      for (let i = 0; i < itemRows.length; i++) {
+        const row = itemRows[i]
+        const qty = parseFloat(row.qty)
+        const rate = parseFloat(row.rate)
+        const { taxable_amount, vat_amount, total_amount } = {
+          taxable_amount: lineTotals[i].taxable,
+          vat_amount: lineTotals[i].vat,
+          total_amount: lineTotals[i].total,
+        }
 
-      // Handle cheque creation
-      if (paymentMethod === 'cheque') {
+        const { data: txData, error: txErr } = await supabase.from('transactions').insert({
+          type: txType,
+          ledger_id: form.ledger_id,
+          item_id: row.item_id,
+          quantity: qty,
+          unit: row.unit,
+          rate,
+          vat_pct: vatPctNum,
+          taxable_amount,
+          vat_amount,
+          total_amount,
+          invoice_no: form.invoice_no || null,
+          note: form.note || null,
+          date: form.date,
+          payment_method: paymentMethod,
+        }).select().single()
+        if (txErr) throw txErr
+        insertedIds.push(txData.id)
+      }
+
+      if (paymentMethod === 'cheque' && insertedIds.length > 0) {
         const { data: chequeData, error: chequeErr } = await supabase.from('cheques').insert({
           direction: txType === 'sale' ? 'incoming' : 'outgoing',
-          transaction_id: txData.id,
+          transaction_id: insertedIds[0],
           party_name: partyName,
-          amount: total_amount,
+          amount: grandTotal,
           cheque_number: form.cheque_number || null,
           bank_name: form.bank_name || null,
           due_date: form.cheque_due_date,
           status: 'pending',
           photo_url: photoPath,
         }).select().single()
-        if (!chequeErr && chequeData) {
-          await supabase.from('transactions').update({ cheque_id: chequeData.id }).eq('id', txData.id)
+        if (chequeErr) throw chequeErr
+        if (chequeData) {
+          await supabase.from('transactions').update({ cheque_id: chequeData.id }).in('id', insertedIds)
         }
       }
 
-      toast.success(editTxId ? 'Entry updated!' : `${txType === 'purchase' ? 'Purchase' : 'Sale'} recorded!`)
+      toast.success(
+        editTxId
+          ? 'Entry updated!'
+          : itemRows.length > 1
+            ? `${itemRows.length} items recorded!`
+            : `${txType === 'purchase' ? 'Purchase' : 'Sale'} recorded!`
+      )
       setEditTxId(null)
       setForm({ ...defaultForm, date: new Date().toISOString().split('T')[0] })
-      setUnit('')
+      setItemRows([newItemRow()])
       setPaymentMethod('cash')
       setPhotoPath(null)
     } catch (err) {
@@ -155,14 +197,35 @@ export default function EntryPage() {
     finally { setSubmitting(false) }
   }
 
-  const qty = parseFloat(form.qty) || 0
-  const rate = parseFloat(form.rate) || 0
   const vatPct = parseFloat(form.vat_pct) || 0
+  const liveLines: LiveCalcLine[] = itemRows
+    .filter(r => parseFloat(r.qty) > 0 && parseFloat(r.rate) > 0)
+    .map(r => {
+      const qty = parseFloat(r.qty)
+      const rate = parseFloat(r.rate)
+      const taxable = qty * rate
+      const vat = taxable * vatPct / 100
+      const name = items.find(i => i.id === r.item_id)?.name ?? 'Item'
+      return { name, taxable, vat, total: taxable + vat }
+    })
+  const grandTaxable = liveLines.reduce((s, l) => s + l.taxable, 0)
+  const grandVat = liveLines.reduce((s, l) => s + l.vat, 0)
+  const grandTotal = liveLines.reduce((s, l) => s + l.total, 0)
+  const hasCalcValues = liveLines.length > 0
+
+  const canAddRows = !editTxId
+
+  function resetFormAndRows() {
+    setEditTxId(null)
+    setForm({ ...defaultForm, date: new Date().toISOString().split('T')[0] })
+    setItemRows([newItemRow()])
+    setPaymentMethod('cash')
+    setPhotoPath(null)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
-      {/* FIXED HEADER */}
       <div style={{
         flexShrink: 0, background: '#0F1117',
         paddingTop: 'env(safe-area-inset-top)',
@@ -178,11 +241,11 @@ export default function EntryPage() {
             </button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <button onClick={() => { setTxType('purchase'); setForm(f => ({ ...f, ledger_id: '' })) }}
+            <button type="button" onClick={() => { setTxType('purchase'); setForm(f => ({ ...f, ledger_id: '' })); setItemRows([newItemRow()]) }}
               style={{ padding: '11px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', background: txType === 'purchase' ? '#F59E0B' : '#1A1D27', color: txType === 'purchase' ? '#111827' : '#475569', border: txType === 'purchase' ? 'none' : '1px solid rgba(255,255,255,0.07)', transition: 'all 0.15s' }}>
               ↓ Purchase
             </button>
-            <button onClick={() => { setTxType('sale'); setForm(f => ({ ...f, ledger_id: '' })) }}
+            <button type="button" onClick={() => { setTxType('sale'); setForm(f => ({ ...f, ledger_id: '' })); setItemRows([newItemRow()]) }}
               style={{ padding: '11px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', background: txType === 'sale' ? '#10B981' : '#1A1D27', color: txType === 'sale' ? '#FFFFFF' : '#475569', border: txType === 'sale' ? 'none' : '1px solid rgba(255,255,255,0.07)', transition: 'all 0.15s' }}>
               ↑ Sale
             </button>
@@ -190,7 +253,6 @@ export default function EntryPage() {
         </div>
       </div>
 
-      {/* SCROLLABLE FORM */}
       <div style={{
         flex: 1, overflowY: 'auto', overflowX: 'hidden',
         WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
@@ -200,7 +262,7 @@ export default function EntryPage() {
         {editTxId && (
           <div style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: '#F59E0B', fontWeight: 500 }}>✏ Editing existing entry — save to update</span>
-            <button type="button" onClick={() => { setEditTxId(null); setForm({ ...defaultForm, date: new Date().toISOString().split('T')[0] }); setUnit(''); setPaymentMethod('cash'); setPhotoPath(null) }}
+            <button type="button" onClick={resetFormAndRows}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#94A3B8', padding: '4px 8px', fontWeight: 500 }}>
               Cancel edit
             </button>
@@ -218,33 +280,103 @@ export default function EntryPage() {
           </div>
 
           <div>
-            <label style={lbl}>Item</label>
-            <select value={form.item_id} onChange={e => handleItemChange(e.target.value)} style={sel} required>
-              <option value="">Select item…</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.default_unit})</option>)}
-            </select>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
-            <div>
-              <label style={lbl}>Quantity</label>
-              <input type="number" min="0" step="any" value={form.qty}
-                onChange={e => setForm(f => ({ ...f, qty: e.target.value }))}
-                placeholder="0" style={inp} required />
-            </div>
-            <div>
-              <label style={lbl}>Unit</label>
-              <div style={{ ...inp, background: '#1A1D27', color: unit ? '#F1F5F9' : '#475569', minWidth: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>
-                {unit || '—'}
+            <label style={lbl}>Items</label>
+            {itemRows.map((row, index) => (
+              <div key={row.key} style={{
+                background: '#0F1117',
+                borderRadius: 12,
+                padding: '12px',
+                paddingTop: itemRows.length > 1 ? 36 : 12,
+                border: '1px solid rgba(255,255,255,0.07)',
+                marginBottom: 8,
+                position: 'relative',
+              }}>
+                {itemRows.length > 1 && canAddRows && (
+                  <button
+                    type="button"
+                    onClick={() => setItemRows(rows => rows.filter((_, i) => i !== index))}
+                    style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'rgba(244,63,94,0.15)',
+                      border: 'none', borderRadius: 6,
+                      color: '#F43F5E', fontSize: 11,
+                      padding: '4px 10px', cursor: 'pointer',
+                      fontWeight: 600,
+                      minHeight: 28,
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+                <label style={lbl}>{itemRows.length > 1 ? `Item #${index + 1}` : 'Item'}</label>
+                <select
+                  value={row.item_id}
+                  onChange={e => {
+                    const item = items.find(i => i.id === e.target.value)
+                    setItemRows(rows => rows.map((r, i) =>
+                      i === index ? { ...r, item_id: e.target.value, unit: item?.default_unit ?? '' } : r
+                    ))
+                  }}
+                  style={{ ...sel, marginBottom: 8 }}
+                  required
+                >
+                  <option value="">Select item…</option>
+                  {items.map(i => (
+                    <option key={i.id} value={i.id}>{i.name} ({i.default_unit})</option>
+                  ))}
+                </select>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <label style={lbl}>Qty ({row.unit || '—'})</label>
+                    <input
+                      type="number" min="0" step="any"
+                      value={row.qty}
+                      onChange={e => setItemRows(rows => rows.map((r, i) =>
+                        i === index ? { ...r, qty: e.target.value } : r
+                      ))}
+                      placeholder="0"
+                      style={inp}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={lbl}>Rate (रू)</label>
+                    <input
+                      type="number" min="0" step="any"
+                      value={row.rate}
+                      onChange={e => setItemRows(rows => rows.map((r, i) =>
+                        i === index ? { ...r, rate: e.target.value } : r
+                      ))}
+                      placeholder="0.00"
+                      style={inp}
+                      required
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            ))}
 
-          <div>
-            <label style={lbl}>Rate (रू per unit)</label>
-            <input type="number" min="0" step="any" value={form.rate}
-              onChange={e => setForm(f => ({ ...f, rate: e.target.value }))}
-              placeholder="0.00" style={inp} required />
+            {canAddRows && (
+              <button
+                type="button"
+                onClick={() => setItemRows(rows => [...rows, newItemRow()])}
+                style={{
+                  width: '100%',
+                  padding: '11px 0',
+                  background: 'transparent',
+                  border: '1px dashed rgba(245,158,11,0.4)',
+                  borderRadius: 12,
+                  color: '#F59E0B',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  marginBottom: 8,
+                  minHeight: 44,
+                }}
+              >
+                + Add another item
+              </button>
+            )}
           </div>
 
           <div>
@@ -253,7 +385,6 @@ export default function EntryPage() {
               onChange={e => setForm(f => ({ ...f, vat_pct: e.target.value }))} style={inp} />
           </div>
 
-          {/* Payment Method */}
           <div>
             <label style={lbl}>Payment Method</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
@@ -271,7 +402,6 @@ export default function EntryPage() {
             </div>
           </div>
 
-          {/* Cheque fields */}
           {paymentMethod === 'cheque' && (
             <div className="fade-in" style={{ background: '#1A1D27', borderRadius: 12, padding: '14px', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <p style={{ fontSize: 12, color: '#F59E0B', fontWeight: 600 }}>
@@ -330,9 +460,15 @@ export default function EntryPage() {
               placeholder="e.g. Nutriplus, Fortune, local brand…" style={inp} />
           </div>
 
-          {qty > 0 && rate > 0 && (
+          {hasCalcValues && (
             <div className="fade-in">
-              <LiveCalc qty={qty} rate={rate} vatPct={vatPct} />
+              <LiveCalc
+                vatPct={vatPct}
+                lines={liveLines}
+                grandTaxable={grandTaxable}
+                grandVat={grandVat}
+                grandTotal={grandTotal}
+              />
             </div>
           )}
 
@@ -343,7 +479,11 @@ export default function EntryPage() {
             color: submitting ? '#475569' : txType === 'purchase' ? '#111827' : '#FFFFFF',
             opacity: submitting ? 0.8 : 1, transition: 'all 0.15s',
           }}>
-            {submitting ? 'Saving…' : `Save ${txType === 'purchase' ? 'Purchase' : 'Sale'}`}
+            {submitting ? 'Saving…' : editTxId
+              ? 'Save update'
+              : itemRows.length > 1
+                ? `Save ${itemRows.length} items`
+                : `Save ${txType === 'purchase' ? 'Purchase' : 'Sale'}`}
           </button>
         </form>
       </div>

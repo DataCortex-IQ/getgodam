@@ -99,6 +99,7 @@ export default function DashboardPage() {
       qty: String(tx.quantity), rate: String(tx.rate), vat_pct: String(tx.vat_pct),
       invoice_no: tx.invoice_no ?? '', note: tx.note ?? '',
       date: tx.date,
+      payment_method: tx.payment_method ?? 'cash',
     }))
     router.push('/entry')
   }
