@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getInventory } from '@/lib/inventory'
 import { formatNPR } from '@/lib/format'
@@ -11,6 +12,7 @@ interface InventoryItem {
 }
 
 export default function GodownPage() {
+  const router = useRouter()
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -40,7 +42,13 @@ export default function GodownPage() {
         zIndex: 10,
       }}>
         <div style={{ padding: '14px 20px 14px' }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F1F5F9', marginBottom: 2 }}>Godown</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F1F5F9' }}>Godown</h1>
+            <button onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login') }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 4, display: 'flex', alignItems: 'center', minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
+              <LogoutIcon />
+            </button>
+          </div>
           <p style={{ fontSize: 12, color: '#475569', marginBottom: loading || inventory.length === 0 ? 0 : 12 }}>
             {loading ? 'Loading…' : `${inventory.length} items · ${formatNPR(totalValue)} value`}
           </p>
@@ -114,6 +122,14 @@ export default function GodownPage() {
         )}
       </div>
     </div>
+  )
+}
+
+function LogoutIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
   )
 }
 

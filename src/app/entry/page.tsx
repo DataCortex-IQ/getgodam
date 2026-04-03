@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import LiveCalc from '@/components/LiveCalc'
 import { toast } from 'sonner'
@@ -14,6 +15,7 @@ const defaultForm = {
 }
 
 export default function EntryPage() {
+  const router = useRouter()
   const [txType, setTxType] = useState<'purchase' | 'sale'>('purchase')
   const [ledgers, setLedgers] = useState<Ledger[]>([])
   const [items, setItems] = useState<Item[]>([])
@@ -84,7 +86,13 @@ export default function EntryPage() {
         zIndex: 10,
       }}>
         <div style={{ padding: '14px 20px 14px' }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F1F5F9', marginBottom: 12 }}>New Entry</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F1F5F9' }}>New Entry</h1>
+            <button onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login') }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 4, display: 'flex', alignItems: 'center', minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
+              <LogoutIcon />
+            </button>
+          </div>
           {/* Purchase / Sale toggle — always visible */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <button
@@ -201,6 +209,14 @@ export default function EntryPage() {
         </form>
       </div>
     </div>
+  )
+}
+
+function LogoutIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
   )
 }
 
