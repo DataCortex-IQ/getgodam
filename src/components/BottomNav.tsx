@@ -58,6 +58,19 @@ const tabs = [
       </svg>
     ),
   },
+  {
+    href: '/cash',
+    label: 'Cash',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <rect x="2" y="6" width="20" height="14" rx="2"
+          fill={active ? 'rgba(245,158,11,0.15)' : 'none'}
+          stroke={active ? '#F59E0B' : '#475569'} strokeWidth="1.5" />
+        <path d="M2 10h20" stroke={active ? '#F59E0B' : '#475569'} strokeWidth="1.5" />
+        <circle cx="17" cy="15" r="1.5" fill={active ? '#F59E0B' : '#475569'} />
+      </svg>
+    ),
+  },
 ]
 
 export default function BottomNav() {

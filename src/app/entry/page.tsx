@@ -10,7 +10,7 @@ interface Item { id: string; name: string; default_unit: string }
 
 const defaultForm = {
   ledger_id: '', item_id: '', qty: '', rate: '',
-  vat_pct: '13', invoice_no: '',
+  vat_pct: '13', invoice_no: '', note: '',
   date: new Date().toISOString().split('T')[0],
 }
 
@@ -22,6 +22,7 @@ export default function EntryPage() {
   const [form, setForm] = useState(defaultForm)
   const [unit, setUnit] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editTxId, setEditTxId] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -31,6 +32,25 @@ export default function EntryPage() {
       ])
       setLedgers(l ?? [])
       setItems(i ?? [])
+
+      // Check for edit pre-fill from localStorage
+      const raw = localStorage.getItem('godam_edit_tx')
+      if (raw) {
+        try {
+          const tx = JSON.parse(raw)
+          localStorage.removeItem('godam_edit_tx')
+          setEditTxId(tx.id)
+          setTxType(tx.type)
+          setForm({
+            ledger_id: tx.ledger_id, item_id: tx.item_id,
+            qty: tx.qty, rate: tx.rate, vat_pct: tx.vat_pct,
+            invoice_no: tx.invoice_no, note: tx.note ?? '', date: tx.date,
+          })
+          // Set unit from items list
+          const foundItem = (i ?? []).find((item: Item) => item.id === tx.item_id)
+          if (foundItem) setUnit(foundItem.default_unit)
+        } catch { localStorage.removeItem('godam_edit_tx') }
+      }
     }
     load()
   }, [])
@@ -57,14 +77,22 @@ export default function EntryPage() {
     const total_amount = taxable_amount + vat_amount
     setSubmitting(true)
     try {
+      if (editTxId) {
+        // Edit mode: delete old, insert new
+        const { error: delErr } = await supabase.from('transactions').delete().eq('id', editTxId)
+        if (delErr) throw delErr
+      }
       const { error } = await supabase.from('transactions').insert({
         type: txType, ledger_id: form.ledger_id, item_id: form.item_id,
         quantity: qty, unit, rate, vat_pct: vatPct,
         taxable_amount, vat_amount, total_amount,
-        invoice_no: form.invoice_no || null, date: form.date,
+        invoice_no: form.invoice_no || null,
+        note: form.note || null,
+        date: form.date,
       })
       if (error) throw error
-      toast.success(`${txType === 'purchase' ? 'Purchase' : 'Sale'} recorded!`)
+      toast.success(editTxId ? 'Entry updated!' : `${txType === 'purchase' ? 'Purchase' : 'Sale'} recorded!`)
+      setEditTxId(null)
       setForm({ ...defaultForm, date: new Date().toISOString().split('T')[0] })
       setUnit('')
     } catch { toast.error('Failed to save.') }
@@ -132,6 +160,15 @@ export default function EntryPage() {
         overscrollBehavior: 'contain',
         padding: '16px 16px 24px',
       }}>
+        {editTxId && (
+          <div style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#F59E0B', fontWeight: 500 }}>✏ Editing existing entry — save to update</span>
+            <button type="button" onClick={() => { setEditTxId(null); setForm({ ...defaultForm, date: new Date().toISOString().split('T')[0] }); setUnit('') }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#94A3B8', padding: '4px 8px', fontWeight: 500 }}>
+              Cancel edit
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           <div>
@@ -189,6 +226,13 @@ export default function EntryPage() {
             <input type="text" value={form.invoice_no}
               onChange={e => setForm(f => ({ ...f, invoice_no: e.target.value }))}
               placeholder="e.g. INV-001" style={inp} />
+          </div>
+
+          <div>
+            <label style={lbl}>Brand / Note (optional)</label>
+            <input type="text" value={form.note}
+              onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+              placeholder="e.g. Nutriplus, Fortune, local brand…" style={inp} />
           </div>
 
           {qty > 0 && rate > 0 && (

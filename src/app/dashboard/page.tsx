@@ -14,9 +14,13 @@ interface Transaction {
   type: 'purchase' | 'sale'
   quantity: number
   rate: number
+  vat_pct: number
   total_amount: number
   date: string
   invoice_no: string | null
+  note: string | null
+  ledger_id: string
+  item_id: string
   ledgers: { name: string } | null
   items: { name: string } | null
 }
@@ -39,17 +43,25 @@ export default function DashboardPage() {
   const [deleting, setDeleting] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [cashBalance, setCashBalance] = useState<number | null>(null)
 
   async function load() {
     try {
-      const [{ data: txData }, inv] = await Promise.all([
+      const [{ data: txData }, inv, { data: cashData }] = await Promise.all([
         supabase.from('transactions')
-          .select(`id, type, quantity, rate, total_amount, date, invoice_no, ledgers (name), items (name)`)
+          .select(`id, type, quantity, rate, vat_pct, total_amount, date, invoice_no, note, ledger_id, item_id, ledgers (name), items (name)`)
           .order('created_at', { ascending: false }),
-        getInventory()
+        getInventory(),
+        supabase.from('cash_entries').select('type, amount'),
       ])
       setTransactions((txData as unknown as Transaction[]) ?? [])
       setInventory(inv)
+      if (cashData) {
+        const opening = cashData.filter(e => e.type === 'opening').reduce((s, e) => s + e.amount, 0)
+        const income = cashData.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0)
+        const expense = cashData.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
+        setCashBalance(opening + income - expense)
+      }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }
@@ -60,6 +72,16 @@ export default function DashboardPage() {
     setLoggingOut(true)
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
+  }
+
+  function handleEdit(tx: Transaction) {
+    localStorage.setItem('godam_edit_tx', JSON.stringify({
+      id: tx.id, type: tx.type, ledger_id: tx.ledger_id, item_id: tx.item_id,
+      qty: String(tx.quantity), rate: String(tx.rate), vat_pct: String(tx.vat_pct),
+      invoice_no: tx.invoice_no ?? '', note: tx.note ?? '',
+      date: tx.date,
+    }))
+    router.push('/entry')
   }
 
   async function handleDelete() {
@@ -163,6 +185,25 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Cash balance */}
+        {!loading && cashBalance !== null && (
+          <Link href="/cash" style={{ textDecoration: 'none' }}>
+            <div style={{
+              background: '#1A1D27', borderRadius: 14, padding: '14px 16px',
+              border: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div>
+                <p style={{ fontSize: 11, color: '#475569', fontWeight: 500, marginBottom: 4 }}>Cash balance</p>
+                <p className="font-mono-numbers" style={{ fontSize: 18, fontWeight: 700, color: cashBalance >= 0 ? '#10B981' : '#F43F5E' }}>
+                  {formatNPR(cashBalance)}
+                </p>
+              </div>
+              <span style={{ fontSize: 16, color: '#475569' }}>→</span>
+            </div>
+          </Link>
+        )}
+
         {/* Godown */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -252,7 +293,9 @@ export default function DashboardPage() {
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: isPurchase ? '#F59E0B' : '#10B981', flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9', marginBottom: 2 }}>{tx.ledgers?.name ?? '—'}</p>
-                        <p style={{ fontSize: 12, color: '#475569' }}>{tx.items?.name ?? '—'} · {tx.quantity} units</p>
+                        <p style={{ fontSize: 12, color: '#475569' }}>
+                          {tx.items?.name ?? '—'}{tx.note ? ` · ${tx.note}` : ''} · {tx.quantity} units
+                        </p>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <p className="font-mono-numbers" style={{ fontSize: 13, fontWeight: 700, color: isPurchase ? '#F59E0B' : '#10B981' }}>
@@ -260,8 +303,12 @@ export default function DashboardPage() {
                         </p>
                         <p style={{ fontSize: 11, color: '#475569' }}>{tx.date}</p>
                       </div>
+                      <button onClick={() => handleEdit(tx)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
+                        <PencilIcon />
+                      </button>
                       <button onClick={() => setPendingDelete(tx.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#374151', padding: 6, display: 'flex', alignItems: 'center', minWidth: 44, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#374151', padding: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 44, justifyContent: 'center', flexShrink: 0 }}>
                         <TrashIcon />
                       </button>
                     </div>
@@ -284,6 +331,15 @@ function LogoutIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
   )
 }
