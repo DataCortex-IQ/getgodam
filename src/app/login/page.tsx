@@ -153,7 +153,7 @@ export default function LoginPage() {
   )
 }
 
-/** Link row defers to after mount so SSR + first client paint match; tagline is static (hydration-safe). */
+/** Tagline first; Powered-by link defers to after mount for hydration-safe first paint. */
 function PoweredByFooter() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
@@ -177,6 +177,9 @@ function PoweredByFooter() {
 
   return (
     <div style={wrap}>
+      <p style={{ margin: 0, fontSize: 12, color: '#374151', letterSpacing: '0.02em', textAlign: 'center' }}>
+        Made with ❤️ from India
+      </p>
       {mounted ? (
         <a
           href="https://www.datacortex.in"
@@ -205,9 +208,6 @@ function PoweredByFooter() {
           <span style={{ width: 132, height: 11 }} />
         </div>
       )}
-      <p style={{ margin: 0, fontSize: 12, color: '#374151', letterSpacing: '0.02em', textAlign: 'center' }}>
-        Made with ❤️ from India
-      </p>
     </div>
   )
 }
