@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionToken, COOKIE_NAME } from '@/lib/auth'
 
-const PROTECTED = ['/dashboard', '/entry', '/godown', '/ledger', '/cash']
+const PROTECTED = ['/dashboard', '/entry', '/godown', '/ledger', '/cash', '/sauda']
 const PUBLIC = ['/login', '/api/auth']
 
 export async function proxy(req: NextRequest) {
@@ -32,5 +32,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/entry/:path*', '/godown/:path*', '/ledger/:path*', '/cash/:path*'],
+  matcher: ['/dashboard/:path*', '/entry/:path*', '/godown/:path*', '/ledger/:path*', '/cash/:path*', '/sauda/:path*'],
 }

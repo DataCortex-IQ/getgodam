@@ -73,6 +73,21 @@ const tabs = [
       </svg>
     ),
   },
+  {
+    href: '/sauda',
+    label: 'Sauda',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M3 12h3l3-8 4 16 3-8h5"
+          stroke={active ? '#F59E0B' : '#475569'}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
 ]
 
 export default function BottomNav() {
