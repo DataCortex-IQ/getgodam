@@ -169,8 +169,8 @@ function PoweredByFooter() {
   const linkRow: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
-    minHeight: 22,
+    gap: 6,
+    minHeight: 14,
     textDecoration: 'none',
     opacity: 0.35,
   }
@@ -191,9 +191,9 @@ function PoweredByFooter() {
           <img
             src="https://www.datacortex.in/images/datacortex-logo.png"
             alt=""
-            width={88}
-            height={22}
-            style={{ height: 22, width: 'auto', maxWidth: 100, objectFit: 'contain', display: 'block', flexShrink: 0 }}
+            width={56}
+            height={14}
+            style={{ height: 14, width: 'auto', maxWidth: 64, objectFit: 'contain', display: 'block', flexShrink: 0 }}
           />
           <span style={{
             fontSize: 11,
@@ -206,7 +206,7 @@ function PoweredByFooter() {
         </a>
       ) : (
         <div style={{ ...linkRow, opacity: 0, pointerEvents: 'none' }} aria-hidden>
-          <span style={{ width: 88, height: 22, flexShrink: 0 }} />
+          <span style={{ width: 56, height: 14, flexShrink: 0 }} />
           <span style={{ width: 132, height: 11 }} />
         </div>
       )}
