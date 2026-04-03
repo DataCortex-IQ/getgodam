@@ -81,6 +81,22 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Godam design tokens */
+  --godam-primary: #111827;
+  --godam-accent: #F59E0B;
+  --godam-success: #059669;
+  --godam-danger: #EF4444;
+  --godam-surface: #F9FAFB;
+  --godam-card: #FFFFFF;
+  --godam-border: #E5E7EB;
+  --godam-text-primary: #111827;
+  --godam-text-secondary: #6B7280;
+  --godam-text-muted: #9CA3AF;
+  --godam-purchase-bg: #FEF3C7;
+  --godam-purchase-text: #92400E;
+  --godam-sale-bg: #D1FAE5;
+  --godam-sale-text: #065F46;
 }
 
 .dark {
@@ -123,8 +139,14 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-dm-sans), 'DM Sans', sans-serif;
+    background: var(--godam-surface);
   }
   html {
     @apply font-sans;
   }
+}
+
+.font-mono-numbers {
+  font-family: var(--font-dm-mono), 'DM Mono', monospace;
 }
